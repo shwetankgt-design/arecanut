@@ -101,8 +101,13 @@ def admin_seed(token: str = Query(...), db: Session = Depends(get_db)):
     if db.query(m.District).count() > 0:
         raise HTTPException(status_code=409, detail="Database already has data — refusing to reseed.")
 
+    db.close()  # release this request's session before seed() opens its own
     from . import seed as seed_module
-    seed_module.seed()
+    try:
+        seed_module.seed()
+    except Exception as e:
+        import traceback
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()[-2000:]}")
     return {"ok": True, "detail": "Database seeded."}
 
 

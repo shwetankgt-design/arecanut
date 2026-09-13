@@ -107,7 +107,10 @@ def admin_seed(token: str = Query(...), db: Session = Depends(get_db)):
         seed_module.seed()
     except Exception as e:
         import traceback
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()[-2000:]}")
+        print("SEED_ERROR:", repr(e))
+        print(traceback.format_exc())
+        safe_msg = str(e).replace("\n", " ")[:500]
+        return {"ok": False, "error_type": type(e).__name__, "error": safe_msg}
     return {"ok": True, "detail": "Database seeded."}
 
 

@@ -174,6 +174,20 @@ def reset_password(request: Request, payload: ResetPasswordIn, db: Session = Dep
     return {"ok": True}
 
 
+# ---------------- ONE-TIME PROD SEED (remove after first run) ----------------
+
+@app.post("/api/_seed")
+def run_seed(request: Request):
+    import os
+    from . import seed as seed_module
+    token = request.headers.get("X-Seed-Token", "")
+    expected = os.environ.get("SEED_TOKEN", "")
+    if not expected or token != expected:
+        raise HTTPException(status_code=404)
+    seed_module.seed()
+    return {"ok": True}
+
+
 # ---------------- MASTER DATA ----------------
 
 @app.get("/api/masters/districts")

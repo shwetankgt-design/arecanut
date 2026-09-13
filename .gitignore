@@ -12,3 +12,8 @@ backend/uvicorn.log
 frontend/vite.log
 frontend/android/app/build/
 frontend/android/.gradle/
+frontend/android/local.properties
+frontend/android/keystore.properties
+keystore/
+
+.vercel

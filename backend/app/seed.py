@@ -108,49 +108,61 @@ def seed():
     db = SessionLocal()
 
     # --- Default login accounts (change passwords before real deployment) ---
-    db.add(m.User(username="admin", email="admin@arecanut-survey.local", full_name="Programme Admin", password_hash=hash_password("Admin@2024Gt"), role="admin"))
-    db.add(m.User(username="enumerator1", email="enumerator1@arecanut-survey.local", full_name="Enum. K. Prasad", password_hash=hash_password("Field@2024Gt"), role="enumerator"))
-    db.add(m.User(username="enumerator2", email="enumerator2@arecanut-survey.local", full_name="Enum. S. Nayak", password_hash=hash_password("Field@2024Gt"), role="enumerator"))
+    db.bulk_insert_mappings(m.User, [
+        {"username": "admin", "email": "admin@arecanut-survey.local", "full_name": "Programme Admin", "password_hash": hash_password("Admin@2024Gt"), "role": "admin"},
+        {"username": "enumerator1", "email": "enumerator1@arecanut-survey.local", "full_name": "Enum. K. Prasad", "password_hash": hash_password("Field@2024Gt"), "role": "enumerator"},
+        {"username": "enumerator2", "email": "enumerator2@arecanut-survey.local", "full_name": "Enum. S. Nayak", "password_hash": hash_password("Field@2024Gt"), "role": "enumerator"},
+    ])
     db.commit()
 
     # --- Masters: geography ---
-    district_objs = {}
-    taluka_objs = {}
-    village_objs = {}
+    # IDs are assigned in Python (rather than round-tripping per row to read
+    # back an autoincrement id) so the whole geography tree is just 3 bulk
+    # inserts instead of ~50+ individual round trips — this matters a lot when
+    # the DB is a remote Postgres (Neon) and the caller is a serverless
+    # function with a hard execution time limit.
+    district_rows, taluka_rows, village_rows = [], [], []
+    district_id_by_name = {}
+    taluka_id_by_key = {}
+    village_id_by_key = {}
+    next_district_id = next_taluka_id = next_village_id = 1
+
     for district, talukas in GEO.items():
-        d = m.District(name=district)
-        db.add(d)
-        db.flush()
-        district_objs[district] = d
+        district_rows.append({"id": next_district_id, "name": district})
+        district_id_by_name[district] = next_district_id
+        d_id = next_district_id
+        next_district_id += 1
         for taluka, villages in talukas.items():
-            t = m.Taluka(name=taluka, district_id=d.id)
-            db.add(t)
-            db.flush()
-            taluka_objs[(district, taluka)] = t
+            taluka_rows.append({"id": next_taluka_id, "name": taluka, "district_id": d_id})
+            taluka_id_by_key[(district, taluka)] = next_taluka_id
+            t_id = next_taluka_id
+            next_taluka_id += 1
             for village in villages:
-                v = m.Village(name=village, taluka_id=t.id)
-                db.add(v)
-                db.flush()
-                village_objs[(district, taluka, village)] = v
+                village_rows.append({"id": next_village_id, "name": village, "taluka_id": t_id})
+                village_id_by_key[(district, taluka, village)] = next_village_id
+                next_village_id += 1
 
-    for s in SOCIETIES:
-        db.add(m.Society(name=s))
-    for c in CROPS_OTHER:
-        db.add(m.CropMaster(name=c))
-    for s in SCHEMES:
-        db.add(m.SchemeMaster(name=s))
-    for mc in MACHINES:
-        db.add(m.MachineMaster(name=mc))
+    db.bulk_insert_mappings(m.District, district_rows)
+    db.bulk_insert_mappings(m.Taluka, taluka_rows)
+    db.bulk_insert_mappings(m.Village, village_rows)
 
-    for list_code, options in OPTION_LISTS.items():
-        for i, opt in enumerate(options):
-            db.add(m.OptionMaster(list_code=list_code, label=opt, sort_order=i))
-
+    db.bulk_insert_mappings(m.Society, [{"name": s} for s in SOCIETIES])
+    db.bulk_insert_mappings(m.CropMaster, [{"name": c} for c in CROPS_OTHER])
+    db.bulk_insert_mappings(m.SchemeMaster, [{"name": s} for s in SCHEMES])
+    db.bulk_insert_mappings(m.MachineMaster, [{"name": mc} for mc in MACHINES])
+    db.bulk_insert_mappings(m.OptionMaster, [
+        {"list_code": list_code, "label": opt, "sort_order": i}
+        for list_code, options in OPTION_LISTS.items()
+        for i, opt in enumerate(options)
+    ])
     db.commit()
 
     geo_flat = build_geo_flat()
 
     # --- Farmer master (registration portal) + Survey records ---
+    farmer_master_rows = []
+    survey_rows = []
+
     for i in range(1, 101):
         name, gender = rand_name()
         district, taluka, village = random.choice(geo_flat)
@@ -160,14 +172,13 @@ def seed():
         aadhaar = f"{random.randint(1000,9999)} {random.randint(1000,9999)} {random.randint(1000,9999)}"
         guardian = f"{random.choice(FIRST_NAMES_M)} {random.choice(LAST_NAMES)}"
 
-        v = village_objs[(district, taluka, village)]
-        fm = m.FarmerMaster(
-            farmer_id=farmer_id, farmer_name=name, mobile_no=mobile, aadhaar_no=aadhaar,
-            gender=gender, age=age, guardian_name=guardian, village_id=v.id,
-            bank_account_no=str(random.randint(10**10, 10**11 - 1)),
-            bank_ifsc=f"SBIN0{random.randint(100000,999999)}",
-        )
-        db.add(fm)
+        village_id = village_id_by_key[(district, taluka, village)]
+        farmer_master_rows.append({
+            "farmer_id": farmer_id, "farmer_name": name, "mobile_no": mobile, "aadhaar_no": aadhaar,
+            "gender": gender, "age": age, "guardian_name": guardian, "village_id": village_id,
+            "bank_account_no": str(random.randint(10**10, 10**11 - 1)),
+            "bank_ifsc": f"SBIN0{random.randint(100000,999999)}",
+        })
 
         # Module 1: Society linkage
         society_assoc = random.random() < 0.62
@@ -268,41 +279,42 @@ def seed():
         geo_long = round(base_long + random.uniform(-0.15, 0.15), 6)
         has_photo = random.random() < 0.7
 
-        survey = m.FarmerSurvey(
-            farmer_id=farmer_id, farmer_name=name, mobile_no=mobile, gender=gender, age=age,
-            guardian_name=guardian,
-            society_assoc="Yes" if society_assoc else "No", society_name=society_name,
-            society_since_year=society_since_year, society_benefits=society_benefits,
-            village=village, taluka=taluka, district=district,
-            land_own_acres=land_own, land_leased_acres=land_leased,
-            areca_area_acres=areca_area, areca_plant_count=areca_plant_count,
-            cultivation_cost_inr=cultivation_cost, yield_raw_qtl=yield_raw_qtl,
-            sale_type=sale_type, processing_cost_inr=processing_cost,
-            marketing_channel=marketing_channel, rate_inr_per_kg=rate_per_kg,
-            total_income_inr=total_income, sale_month=sale_month,
-            storage_duration_months=storage_duration, storage_source=storage_source,
-            logistics_provider=logistics_provider, logistics_cost_inr_per_qtl=logistics_cost,
-            cultivation_challenges=cultivation_challenges,
-            crop2_name=crop2_name, crop2_area_acres=crop2_area, crop2_yield=crop2_yield, crop2_rate=crop2_rate,
-            crop3_name=crop3_name, crop3_area_acres=crop3_area, crop3_yield=crop3_yield, crop3_rate=crop3_rate,
-            mech_owned=",".join(owned) if owned else None,
-            mech_rented=",".join(rented) if rented else None,
-            mech_rental_rate_inr_hr=json.dumps(rental_rate_map) if rental_rate_map else None,
-            credit_linkage="Yes" if credit_linkage else "No", credit_source=credit_source,
-            credit_amount_inr=credit_amount, credit_interest_rate_pct=credit_interest,
-            credit_repayment_months=credit_repay_months,
-            scheme_availed="Yes" if scheme_availed else "No", scheme_name=scheme_name, scheme_benefits=scheme_benefits,
-            irrigation_source=irrigation_source, irrigation_challenges=irrigation_challenges,
-            soil_test_done="Yes" if soil_test_done else "No",
-            crop_insurance="Yes" if crop_insurance else "No", crop_insurance_detail=crop_insurance_detail,
-            input_source=input_source, input_distance_km=input_distance, input_challenges=input_challenges,
-            tech_adoption="Yes" if tech_adoption else "No", tech_adoption_detail=tech_adoption_detail,
-            entry_timestamp=ts, geo_lat=geo_lat, geo_long=geo_long,
-            field_photo=f"/photos/{farmer_id.replace('/','_')}.jpg" if has_photo else None,
-            enumerator_name=random.choice(["Enum. K. Prasad", "Enum. S. Nayak", "Enum. R. Bhat", "Enum. M. Devi"]),
-        )
-        db.add(survey)
+        survey_rows.append({
+            "farmer_id": farmer_id, "farmer_name": name, "mobile_no": mobile, "gender": gender, "age": age,
+            "guardian_name": guardian,
+            "society_assoc": "Yes" if society_assoc else "No", "society_name": society_name,
+            "society_since_year": society_since_year, "society_benefits": society_benefits,
+            "village": village, "taluka": taluka, "district": district,
+            "land_own_acres": land_own, "land_leased_acres": land_leased,
+            "areca_area_acres": areca_area, "areca_plant_count": areca_plant_count,
+            "cultivation_cost_inr": cultivation_cost, "yield_raw_qtl": yield_raw_qtl,
+            "sale_type": sale_type, "processing_cost_inr": processing_cost,
+            "marketing_channel": marketing_channel, "rate_inr_per_kg": rate_per_kg,
+            "total_income_inr": total_income, "sale_month": sale_month,
+            "storage_duration_months": storage_duration, "storage_source": storage_source,
+            "logistics_provider": logistics_provider, "logistics_cost_inr_per_qtl": logistics_cost,
+            "cultivation_challenges": cultivation_challenges,
+            "crop2_name": crop2_name, "crop2_area_acres": crop2_area, "crop2_yield": crop2_yield, "crop2_rate": crop2_rate,
+            "crop3_name": crop3_name, "crop3_area_acres": crop3_area, "crop3_yield": crop3_yield, "crop3_rate": crop3_rate,
+            "mech_owned": ",".join(owned) if owned else None,
+            "mech_rented": ",".join(rented) if rented else None,
+            "mech_rental_rate_inr_hr": json.dumps(rental_rate_map) if rental_rate_map else None,
+            "credit_linkage": "Yes" if credit_linkage else "No", "credit_source": credit_source,
+            "credit_amount_inr": credit_amount, "credit_interest_rate_pct": credit_interest,
+            "credit_repayment_months": credit_repay_months,
+            "scheme_availed": "Yes" if scheme_availed else "No", "scheme_name": scheme_name, "scheme_benefits": scheme_benefits,
+            "irrigation_source": irrigation_source, "irrigation_challenges": irrigation_challenges,
+            "soil_test_done": "Yes" if soil_test_done else "No",
+            "crop_insurance": "Yes" if crop_insurance else "No", "crop_insurance_detail": crop_insurance_detail,
+            "input_source": input_source, "input_distance_km": input_distance, "input_challenges": input_challenges,
+            "tech_adoption": "Yes" if tech_adoption else "No", "tech_adoption_detail": tech_adoption_detail,
+            "entry_timestamp": ts, "geo_lat": geo_lat, "geo_long": geo_long,
+            "field_photo": f"/photos/{farmer_id.replace('/','_')}.jpg" if has_photo else None,
+            "enumerator_name": random.choice(["Enum. K. Prasad", "Enum. S. Nayak", "Enum. R. Bhat", "Enum. M. Devi"]),
+        })
 
+    db.bulk_insert_mappings(m.FarmerMaster, farmer_master_rows)
+    db.bulk_insert_mappings(m.FarmerSurvey, survey_rows)
     db.commit()
     db.close()
     print("Seed complete: 100 farmer master + survey records, full master data loaded.")

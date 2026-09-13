@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     SMTP_FROM: str = "no-reply@arecanut-survey.local"
     SMTP_USE_TLS: bool = True
 
+    # One-time bootstrap: set this env var to enable POST /api/admin/seed on a
+    # freshly-provisioned (empty) production database, call it once, then
+    # remove the env var — the endpoint refuses to run again once any master
+    # data exists, and 404s outright if this is unset.
+    ADMIN_SEED_TOKEN: str = ""
+
     @property
     def smtp_configured(self) -> bool:
         return bool(self.SMTP_HOST and self.SMTP_USER and self.SMTP_PASSWORD)

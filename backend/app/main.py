@@ -68,6 +68,28 @@ app.add_middleware(
 )
 
 
+# ---------------- ONE-TIME PRODUCTION BOOTSTRAP ----------------
+
+@app.post("/api/admin/seed")
+def admin_seed(token: str = Query(...), db: Session = Depends(get_db)):
+    """
+    Populates a freshly-provisioned, empty database with master data + demo
+    accounts. Guarded by ADMIN_SEED_TOKEN (unset => this route 404s outright)
+    and refuses to run if the database already has any master data, so it
+    can't be used to wipe or duplicate real production data.
+    """
+    if not settings.ADMIN_SEED_TOKEN:
+        raise HTTPException(status_code=404, detail="Not found")
+    if token != settings.ADMIN_SEED_TOKEN:
+        raise HTTPException(status_code=403, detail="Invalid seed token")
+    if db.query(m.District).count() > 0:
+        raise HTTPException(status_code=409, detail="Database already has data — refusing to reseed.")
+
+    from . import seed as seed_module
+    seed_module.seed()
+    return {"ok": True, "detail": "Database seeded."}
+
+
 # ---------------- AUTH ----------------
 
 @app.post("/api/auth/login", response_model=TokenOut)

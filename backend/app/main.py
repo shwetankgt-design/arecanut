@@ -70,6 +70,22 @@ app.add_middleware(
 
 # ---------------- ONE-TIME PRODUCTION BOOTSTRAP ----------------
 
+@app.get("/api/admin/dbping")
+def admin_dbping(token: str = Query(...)):
+    """Temporary diagnostic: isolates DB-connection latency from the seed logic itself."""
+    if not settings.ADMIN_SEED_TOKEN or token != settings.ADMIN_SEED_TOKEN:
+        raise HTTPException(status_code=404, detail="Not found")
+    import time
+    from sqlalchemy import text
+    from .db import engine as _engine
+    t0 = time.monotonic()
+    with _engine.connect() as conn:
+        t1 = time.monotonic()
+        conn.execute(text("SELECT 1"))
+        t2 = time.monotonic()
+    return {"connect_seconds": round(t1 - t0, 3), "query_seconds": round(t2 - t1, 3)}
+
+
 @app.post("/api/admin/seed")
 def admin_seed(token: str = Query(...), db: Session = Depends(get_db)):
     """

@@ -174,42 +174,6 @@ def reset_password(request: Request, payload: ResetPasswordIn, db: Session = Dep
     return {"ok": True}
 
 
-# ---------------- ONE-TIME PROD SEED (remove after this run) ----------------
-
-def _check_seed_token(request: Request):
-    import os
-    token = request.headers.get("X-Seed-Token", "")
-    expected = os.environ.get("SEED_TOKEN", "")
-    if not expected or token != expected:
-        raise HTTPException(status_code=404)
-
-
-@app.post("/api/_seed")
-def run_seed(request: Request):
-    _check_seed_token(request)
-    from . import seed as seed_module
-    seed_module.seed()
-    return {"ok": True}
-
-
-@app.get("/api/_seed/counts")
-def seed_counts(request: Request, db: Session = Depends(get_db)):
-    _check_seed_token(request)
-    return {
-        "users": db.query(m.User).count(),
-        "districts": db.query(m.District).count(),
-        "talukas": db.query(m.Taluka).count(),
-        "villages": db.query(m.Village).count(),
-        "societies": db.query(m.Society).count(),
-        "crops": db.query(m.CropMaster).count(),
-        "schemes": db.query(m.SchemeMaster).count(),
-        "machines": db.query(m.MachineMaster).count(),
-        "options": db.query(m.OptionMaster).count(),
-        "farmer_master": db.query(m.FarmerMaster).count(),
-        "farmer_survey": db.query(m.FarmerSurvey).count(),
-    }
-
-
 # ---------------- MASTER DATA ----------------
 
 @app.get("/api/masters/districts")

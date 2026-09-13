@@ -1,0 +1,14 @@
+node_modules/
+dist/
+dev-dist/
+.vercel/
+.env
+.env.local
+.env.*.local
+__pycache__/
+*.pyc
+backend/arecanut.db
+backend/uvicorn.log
+frontend/vite.log
+frontend/android/app/build/
+frontend/android/.gradle/

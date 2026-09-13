@@ -1,0 +1,593 @@
+from collections import Counter
+from typing import Optional
+from fastapi import FastAPI, Depends, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from starlette.middleware.base import BaseHTTPMiddleware
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+import datetime
+
+from .config import get_settings
+from .db import Base, engine, get_db
+from . import models as m
+from .schemas import (
+    SurveyIn, SurveyOut, FarmerLookup, LoginIn, TokenOut, UserOut, RefreshIn, LogoutIn,
+    ForgotPasswordIn, ResetPasswordIn,
+)
+from .auth import (
+    verify_password, hash_password, validate_password_strength, create_access_token,
+    get_current_user, require_role,
+    issue_refresh_token, rotate_refresh_token, revoke_refresh_token, revoke_all_refresh_tokens,
+    register_failed_login, register_successful_login, is_locked, audit,
+    issue_password_reset_token, consume_password_reset_token,
+)
+from .email_utils import send_password_reset_email
+
+settings = get_settings()
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI(title="Arecanut Farmer Data Collection API", debug=not settings.is_production)
+
+# ---------------- security middleware ----------------
+
+limiter = Limiter(key_func=get_remote_address, default_limits=[settings.RATE_LIMIT_DEFAULT])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """OWASP-recommended response headers — defends against clickjacking, MIME
+    sniffing, referrer leakage, and (for the rare HTML response) XSS via CSP."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "geolocation=(self), camera=(self), microphone=()"
+        response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+        if request.url.scheme == "https":
+            response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
+        return response
+
+
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts_list or ["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins_list,
+    # No cookies are used (auth is Bearer-token based), so credentialed CORS
+    # isn't needed — and keeping it off lets "*" work as an origin in dev.
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
+)
+
+
+# ---------------- AUTH ----------------
+
+@app.post("/api/auth/login", response_model=TokenOut)
+@limiter.limit(settings.RATE_LIMIT_LOGIN)
+def login(request: Request, payload: LoginIn, db: Session = Depends(get_db)):
+    user = db.query(m.User).filter(m.User.username == payload.username).first()
+
+    if not user or not user.is_active:
+        audit(db, request, "login_failed", username=payload.username, detail="unknown or inactive user")
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+
+    if is_locked(user):
+        audit(db, request, "login_blocked_locked", user=user)
+        raise HTTPException(status_code=423, detail="Account temporarily locked due to repeated failed logins. Try again later.")
+
+    if not verify_password(payload.password, user.password_hash):
+        register_failed_login(db, user)
+        audit(db, request, "login_failed", user=user, detail="bad password")
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+
+    register_successful_login(db, user)
+    audit(db, request, "login_success", user=user)
+    access_token = create_access_token(user)
+    refresh_token = issue_refresh_token(db, user)
+    return TokenOut(
+        access_token=access_token, refresh_token=refresh_token,
+        role=user.role, username=user.username, full_name=user.full_name,
+    )
+
+
+@app.post("/api/auth/refresh", response_model=TokenOut)
+@limiter.limit(settings.RATE_LIMIT_LOGIN)
+def refresh(request: Request, payload: RefreshIn, db: Session = Depends(get_db)):
+    user, new_refresh = rotate_refresh_token(db, payload.refresh_token)
+    access_token = create_access_token(user)
+    return TokenOut(
+        access_token=access_token, refresh_token=new_refresh,
+        role=user.role, username=user.username, full_name=user.full_name,
+    )
+
+
+@app.post("/api/auth/logout")
+def logout(payload: LogoutIn, db: Session = Depends(get_db)):
+    revoke_refresh_token(db, payload.refresh_token)
+    return {"ok": True}
+
+
+@app.get("/api/auth/me", response_model=UserOut)
+def me(user: m.User = Depends(get_current_user)):
+    return UserOut(username=user.username, full_name=user.full_name, role=user.role)
+
+
+@app.post("/api/auth/forgot-password")
+@limiter.limit(settings.RATE_LIMIT_PASSWORD_RESET)
+def forgot_password(request: Request, payload: ForgotPasswordIn, db: Session = Depends(get_db)):
+    """
+    Always returns the same generic response whether or not the identifier is
+    registered — this prevents user enumeration (OWASP A07 / API3). The actual
+    email is only sent when a matching, active account exists.
+    """
+    generic_response = {"ok": True, "detail": "If an account matches, a password reset email has been sent."}
+
+    identifier = payload.identifier.strip()
+    user = (
+        db.query(m.User)
+        .filter((m.User.username == identifier) | (m.User.email == identifier))
+        .first()
+    )
+    if not user or not user.is_active:
+        audit(db, request, "password_reset_requested_unknown", username=identifier)
+        return generic_response
+
+    if not user.email:
+        # Account has no email on file — nothing we can do, but don't reveal that.
+        audit(db, request, "password_reset_requested_no_email", user=user)
+        return generic_response
+
+    raw_token = issue_password_reset_token(db, user)
+    reset_link = f"{settings.APP_BASE_URL.rstrip('/')}/reset-password?token={raw_token}"
+    send_password_reset_email(user.email, user.full_name, reset_link, settings.PASSWORD_RESET_EXPIRE_MINUTES)
+    audit(db, request, "password_reset_requested", user=user)
+    return generic_response
+
+
+@app.post("/api/auth/reset-password")
+@limiter.limit(settings.RATE_LIMIT_PASSWORD_RESET)
+def reset_password(request: Request, payload: ResetPasswordIn, db: Session = Depends(get_db)):
+    # Validate the new password BEFORE consuming the token — a rejected weak
+    # password must not burn the (single-use) reset link.
+    weakness = validate_password_strength(payload.new_password)
+    if weakness:
+        raise HTTPException(status_code=400, detail=weakness)
+
+    user = consume_password_reset_token(db, payload.token)
+    user.password_hash = hash_password(payload.new_password)
+    user.failed_login_count = 0
+    user.locked_until = None
+    db.commit()
+
+    # Force every existing session (this device and any other) to re-login —
+    # a password reset should invalidate whatever a possible attacker was holding.
+    revoke_all_refresh_tokens(db, user.id)
+    audit(db, request, "password_reset_completed", user=user)
+    return {"ok": True}
+
+
+# ---------------- MASTER DATA ----------------
+
+@app.get("/api/masters/districts")
+def get_districts(db: Session = Depends(get_db)):
+    return [d.name for d in db.query(m.District).order_by(m.District.name).all()]
+
+
+@app.get("/api/masters/talukas")
+def get_talukas(district: str = Query(...), db: Session = Depends(get_db)):
+    d = db.query(m.District).filter(m.District.name == district).first()
+    if not d:
+        return []
+    return [t.name for t in d.talukas]
+
+
+@app.get("/api/masters/villages")
+def get_villages(district: str = Query(...), taluka: str = Query(...), db: Session = Depends(get_db)):
+    t = (
+        db.query(m.Taluka)
+        .join(m.District)
+        .filter(m.District.name == district, m.Taluka.name == taluka)
+        .first()
+    )
+    if not t:
+        return []
+    return [v.name for v in t.villages]
+
+
+@app.get("/api/masters/villages-flat")
+def get_villages_flat(db: Session = Depends(get_db)):
+    """Every village with its parent taluka & district, for reverse (village-first) lookup."""
+    rows = (
+        db.query(m.Village, m.Taluka, m.District)
+        .join(m.Taluka, m.Village.taluka_id == m.Taluka.id)
+        .join(m.District, m.Taluka.district_id == m.District.id)
+        .order_by(m.Village.name)
+        .all()
+    )
+    return [
+        {"village": v.name, "taluka": t.name, "district": d.name}
+        for v, t, d in rows
+    ]
+
+
+@app.get("/api/masters/societies")
+def get_societies(db: Session = Depends(get_db)):
+    return [s.name for s in db.query(m.Society).order_by(m.Society.name).all()]
+
+
+@app.get("/api/masters/crops")
+def get_crops(db: Session = Depends(get_db)):
+    return [c.name for c in db.query(m.CropMaster).order_by(m.CropMaster.name).all()]
+
+
+@app.get("/api/masters/schemes")
+def get_schemes(db: Session = Depends(get_db)):
+    return [s.name for s in db.query(m.SchemeMaster).order_by(m.SchemeMaster.name).all()]
+
+
+@app.get("/api/masters/machines")
+def get_machines(db: Session = Depends(get_db)):
+    return [x.name for x in db.query(m.MachineMaster).order_by(m.MachineMaster.name).all()]
+
+
+@app.get("/api/masters/options")
+def get_options(list_code: str = Query(...), db: Session = Depends(get_db)):
+    rows = (
+        db.query(m.OptionMaster)
+        .filter(m.OptionMaster.list_code == list_code)
+        .order_by(m.OptionMaster.sort_order)
+        .all()
+    )
+    return [r.label for r in rows]
+
+
+# ---------------- FARMER MASTER LOOKUP (Module 0: search by Aadhaar/Mobile) ----------------
+
+@app.get("/api/farmer-master/lookup", response_model=Optional[FarmerLookup])
+def lookup_farmer(q: str = Query(..., description="Aadhaar or Mobile number"), db: Session = Depends(get_db), user: m.User = Depends(get_current_user)):
+    fm = (
+        db.query(m.FarmerMaster)
+        .filter((m.FarmerMaster.mobile_no == q) | (m.FarmerMaster.aadhaar_no == q) | (m.FarmerMaster.farmer_id == q))
+        .first()
+    )
+    if not fm:
+        raise HTTPException(status_code=404, detail="No matching farmer found in Registration Portal")
+    village = db.query(m.Village).get(fm.village_id)
+    taluka = db.query(m.Taluka).get(village.taluka_id) if village else None
+    district = db.query(m.District).get(taluka.district_id) if taluka else None
+    return FarmerLookup(
+        farmer_id=fm.farmer_id, farmer_name=fm.farmer_name, mobile_no=fm.mobile_no,
+        gender=fm.gender, age=fm.age, guardian_name=fm.guardian_name,
+        village=village.name if village else None, taluka=taluka.name if taluka else None,
+        district=district.name if district else None,
+    )
+
+
+# ---------------- SURVEY CRUD ----------------
+
+EXACT_FILTER_FIELDS = [
+    "district", "taluka", "village", "society_assoc", "sale_type", "marketing_channel",
+    "sale_month", "storage_source", "logistics_provider", "credit_linkage", "credit_source",
+    "scheme_availed", "scheme_name", "soil_test_done", "crop_insurance", "input_source",
+    "input_challenges", "tech_adoption",
+]
+CONTAINS_FILTER_FIELDS = [
+    "society_benefits", "cultivation_challenges", "irrigation_source", "mech_owned", "mech_rented",
+]
+
+
+@app.get("/api/surveys", response_model=list[SurveyOut])
+def list_surveys(
+    q: Optional[str] = None,
+    district: Optional[str] = None,
+    taluka: Optional[str] = None,
+    village: Optional[str] = None,
+    society_assoc: Optional[str] = None,
+    sale_type: Optional[str] = None,
+    marketing_channel: Optional[str] = None,
+    sale_month: Optional[str] = None,
+    storage_source: Optional[str] = None,
+    logistics_provider: Optional[str] = None,
+    credit_linkage: Optional[str] = None,
+    credit_source: Optional[str] = None,
+    scheme_availed: Optional[str] = None,
+    scheme_name: Optional[str] = None,
+    soil_test_done: Optional[str] = None,
+    crop_insurance: Optional[str] = None,
+    input_source: Optional[str] = None,
+    input_challenges: Optional[str] = None,
+    tech_adoption: Optional[str] = None,
+    society_benefits: Optional[str] = None,
+    cultivation_challenges: Optional[str] = None,
+    irrigation_source: Optional[str] = None,
+    mech_owned: Optional[str] = None,
+    mech_rented: Optional[str] = None,
+    limit: int = Query(500, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    user: m.User = Depends(get_current_user),
+):
+    query = db.query(m.FarmerSurvey)
+    local_vars = locals()
+    for field in EXACT_FILTER_FIELDS:
+        value = local_vars.get(field)
+        if value:
+            query = query.filter(getattr(m.FarmerSurvey, field) == value)
+    for field in CONTAINS_FILTER_FIELDS:
+        value = local_vars.get(field)
+        if value:
+            query = query.filter(getattr(m.FarmerSurvey, field).like(f"%{value}%"))
+    if q:
+        like = f"%{q}%"
+        query = query.filter((m.FarmerSurvey.farmer_name.like(like)) | (m.FarmerSurvey.farmer_id.like(like)) | (m.FarmerSurvey.mobile_no.like(like)))
+    # capped result size + offset — prevents a single request from pulling the
+    # entire table (OWASP API4:2023 Unrestricted Resource Consumption)
+    return query.order_by(m.FarmerSurvey.entry_timestamp.desc()).offset(offset).limit(limit).all()
+
+
+@app.get("/api/surveys/{survey_id}", response_model=SurveyOut)
+def get_survey(survey_id: int, db: Session = Depends(get_db), user: m.User = Depends(get_current_user)):
+    s = db.query(m.FarmerSurvey).get(survey_id)
+    if not s:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    return s
+
+
+def compute_income(payload: SurveyIn) -> float:
+    gross = payload.yield_raw_qtl * payload.rate_inr_per_kg * 100
+    total = gross - payload.cultivation_cost_inr
+    if payload.sale_type == "Sold processed areca" and payload.processing_cost_inr:
+        total -= payload.processing_cost_inr
+    return round(total, 0)
+
+
+@app.post("/api/surveys", response_model=SurveyOut)
+def create_survey(
+    request: Request,
+    payload: SurveyIn,
+    db: Session = Depends(get_db),
+    user: m.User = Depends(require_role("admin", "enumerator")),
+):
+    # If this exact offline-queued submission was already synced (e.g. the app
+    # retried after a flaky connection), return the existing row instead of a duplicate.
+    if payload.client_uuid:
+        existing = db.query(m.FarmerSurvey).filter(m.FarmerSurvey.client_uuid == payload.client_uuid).first()
+        if existing:
+            return existing
+
+    data = payload.dict()
+    data["total_income_inr"] = compute_income(payload)
+    data["entry_timestamp"] = datetime.datetime.utcnow()
+    data["created_by_user_id"] = user.id
+    survey = m.FarmerSurvey(**data)
+    db.add(survey)
+    db.commit()
+    db.refresh(survey)
+    audit(db, request, "survey_create", user=user, resource=f"survey:{survey.id}")
+    return survey
+
+
+@app.put("/api/surveys/{survey_id}", response_model=SurveyOut)
+def update_survey(
+    survey_id: int,
+    request: Request,
+    payload: SurveyIn,
+    db: Session = Depends(get_db),
+    user: m.User = Depends(require_role("admin", "enumerator")),
+):
+    survey = db.query(m.FarmerSurvey).get(survey_id)
+    if not survey:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    data = payload.dict()
+    data["total_income_inr"] = compute_income(payload)
+    for k, v in data.items():
+        setattr(survey, k, v)
+    db.commit()
+    db.refresh(survey)
+    audit(db, request, "survey_update", user=user, resource=f"survey:{survey.id}")
+    return survey
+
+
+@app.delete("/api/surveys/{survey_id}")
+def delete_survey(
+    survey_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: m.User = Depends(require_role("admin")),
+):
+    survey = db.query(m.FarmerSurvey).get(survey_id)
+    if not survey:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    db.delete(survey)
+    db.commit()
+    audit(db, request, "survey_delete", user=user, resource=f"survey:{survey_id}")
+    return {"ok": True}
+
+
+# ---------------- DASHBOARD KPIs ----------------
+
+def split_multi(values):
+    counter = Counter()
+    for v in values:
+        if not v:
+            continue
+        for part in str(v).split(","):
+            part = part.strip()
+            if part:
+                counter[part] += 1
+    return counter
+
+
+@app.get("/api/dashboard/kpis")
+def dashboard_kpis(db: Session = Depends(get_db), user: m.User = Depends(get_current_user)):
+    rows = db.query(m.FarmerSurvey).all()
+    total = len(rows) or 1
+
+    def pct(pred):
+        return round(100 * sum(1 for r in rows if pred(r)) / total, 1)
+
+    def avg(field_fn):
+        vals = [field_fn(r) for r in rows if field_fn(r) is not None]
+        return round(sum(vals) / len(vals), 2) if vals else 0
+
+    village_counts = Counter(r.village for r in rows)
+    district_counts = Counter(r.district for r in rows)
+    taluka_counts = Counter(r.taluka for r in rows)
+
+    society_benefit_counts = split_multi([r.society_benefits for r in rows if r.society_assoc == "Yes"])
+    challenge_counts = split_multi([r.cultivation_challenges for r in rows])
+    irrigation_counts = split_multi([r.irrigation_source for r in rows])
+
+    sale_type_counts = Counter(r.sale_type for r in rows)
+    channel_counts = Counter(r.marketing_channel for r in rows)
+    month_yield = {mo: 0.0 for mo in ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]}
+    month_count = {mo: 0 for mo in month_yield}
+    for r in rows:
+        if r.sale_month in month_yield:
+            month_yield[r.sale_month] += r.yield_raw_qtl or 0
+            month_count[r.sale_month] += 1
+
+    storage_source_counts = Counter(r.storage_source for r in rows if r.storage_source)
+    logistics_provider_avg_cost = {}
+    for r in rows:
+        if r.logistics_provider and r.logistics_cost_inr_per_qtl:
+            logistics_provider_avg_cost.setdefault(r.logistics_provider, []).append(r.logistics_cost_inr_per_qtl)
+    logistics_provider_avg_cost = {k: round(sum(v)/len(v), 1) for k, v in logistics_provider_avg_cost.items()}
+
+    credit_source_counts = Counter(r.credit_source for r in rows if r.credit_linkage == "Yes" and r.credit_source)
+    scheme_counts = Counter(r.scheme_name for r in rows if r.scheme_availed == "Yes" and r.scheme_name)
+    input_source_counts = Counter(r.input_source for r in rows)
+    input_challenge_counts = Counter(r.input_challenges for r in rows if r.input_challenges)
+
+    mech_owned_counts = split_multi([r.mech_owned for r in rows])
+    mech_rented_counts = split_multi([r.mech_rented for r in rows])
+
+    diversified = sum(1 for r in rows if r.crop2_name)
+
+    missing_geo_or_photo = sum(1 for r in rows if not r.geo_lat or not r.field_photo)
+
+    return {
+        "total_farmers": total,
+        "reach": {
+            "total_surveyed": total,
+            "village_counts": village_counts.most_common(),
+            "taluka_counts": taluka_counts.most_common(),
+            "district_counts": district_counts.most_common(),
+        },
+        "institutional_linkage": {
+            "pct_society_linked": pct(lambda r: r.society_assoc == "Yes"),
+            "benefit_penetration": society_benefit_counts.most_common(),
+        },
+        "land_productivity": {
+            "avg_own_land": avg(lambda r: r.land_own_acres),
+            "avg_leased_land": avg(lambda r: r.land_leased_acres),
+            "avg_areca_area": avg(lambda r: r.areca_area_acres),
+            "avg_yield_per_acre": round(sum(r.yield_raw_qtl for r in rows) / sum(r.areca_area_acres for r in rows), 2) if rows else 0,
+        },
+        "economics": {
+            "avg_cost_per_acre": round(sum(r.cultivation_cost_inr for r in rows) / sum(r.areca_area_acres for r in rows), 0) if rows else 0,
+            "avg_rate_per_kg": avg(lambda r: r.rate_inr_per_kg),
+            "avg_net_income": avg(lambda r: r.total_income_inr),
+            "sale_type_share": sale_type_counts.most_common(),
+        },
+        "market_access": {
+            "channel_share": channel_counts.most_common(),
+            "monthly_yield": month_yield,
+            "monthly_count": month_count,
+        },
+        "storage_logistics": {
+            "avg_storage_duration": avg(lambda r: r.storage_duration_months),
+            "storage_source_share": storage_source_counts.most_common(),
+            "logistics_cost_by_provider": logistics_provider_avg_cost,
+        },
+        "diversification": {
+            "pct_diversified": pct(lambda r: bool(r.crop2_name)),
+            "count_diversified": diversified,
+        },
+        "mechanisation": {
+            "owned_counts": mech_owned_counts.most_common(),
+            "rented_counts": mech_rented_counts.most_common(),
+        },
+        "financial_inclusion": {
+            "pct_credit_linked": pct(lambda r: r.credit_linkage == "Yes"),
+            "credit_source_share": credit_source_counts.most_common(),
+            "avg_interest_rate": avg(lambda r: r.credit_interest_rate_pct),
+            "avg_loan_amount": avg(lambda r: r.credit_amount_inr),
+        },
+        "scheme_penetration": {
+            "pct_scheme_availed": pct(lambda r: r.scheme_availed == "Yes"),
+            "scheme_share": scheme_counts.most_common(),
+        },
+        "sustainability": {
+            "irrigation_share": irrigation_counts.most_common(),
+            "pct_soil_test_done": pct(lambda r: r.soil_test_done == "Yes"),
+        },
+        "risk_management": {
+            "pct_crop_insurance": pct(lambda r: r.crop_insurance == "Yes"),
+        },
+        "input_supply_chain": {
+            "source_share": input_source_counts.most_common(),
+            "avg_distance_km": avg(lambda r: r.input_distance_km),
+            "challenge_share": input_challenge_counts.most_common(),
+        },
+        "technology_adoption": {
+            "pct_tech_adoption": pct(lambda r: r.tech_adoption == "Yes"),
+        },
+        "advisory_targeting": {
+            "challenge_share": challenge_counts.most_common(),
+        },
+        "audit": {
+            "missing_geo_or_photo": missing_geo_or_photo,
+            "geo_points": [{"lat": r.geo_lat, "lng": r.geo_long, "farmer": r.farmer_name, "village": r.village} for r in rows if r.geo_lat],
+        },
+    }
+
+
+# ---------------- YIELD ESTIMATION ----------------
+
+def _safe_avg(values):
+    values = [v for v in values if v is not None]
+    return round(sum(values) / len(values), 2) if values else 0
+
+
+@app.get("/api/dashboard/yield-benchmarks")
+def yield_benchmarks(db: Session = Depends(get_db), user: m.User = Depends(get_current_user)):
+    """
+    Historical productivity benchmarks (from actual survey data) used to power the
+    Yield Estimation tool: plants/acre density, yield/acre, price realised, and cost/acre,
+    rolled up overall and per district/taluka so an enumerator can estimate an upcoming
+    season's yield & income for a farmer before the harvest is even in.
+    """
+    rows = db.query(m.FarmerSurvey).all()
+
+    def bucket(rows_subset):
+        areas = [r.areca_area_acres for r in rows_subset if r.areca_area_acres]
+        plants = [r.areca_plant_count for r in rows_subset if r.areca_plant_count]
+        return {
+            "sample_size": len(rows_subset),
+            "avg_plants_per_acre": _safe_avg([r.areca_plant_count / r.areca_area_acres for r in rows_subset if r.areca_area_acres]),
+            "avg_yield_per_acre_qtl": _safe_avg([r.yield_raw_qtl / r.areca_area_acres for r in rows_subset if r.areca_area_acres]),
+            "avg_yield_per_plant_kg": _safe_avg([r.yield_raw_qtl * 100 / r.areca_plant_count for r in rows_subset if r.areca_plant_count]),
+            "avg_rate_inr_per_kg": _safe_avg([r.rate_inr_per_kg for r in rows_subset]),
+            "avg_cost_per_acre_inr": _safe_avg([r.cultivation_cost_inr / r.areca_area_acres for r in rows_subset if r.areca_area_acres]),
+        }
+
+    overall = bucket(rows)
+
+    by_district = {}
+    for d in sorted(set(r.district for r in rows)):
+        by_district[d] = bucket([r for r in rows if r.district == d])
+
+    by_taluka = {}
+    for t in sorted(set(r.taluka for r in rows)):
+        by_taluka[t] = bucket([r for r in rows if r.taluka == t])
+
+    return {"overall": overall, "by_district": by_district, "by_taluka": by_taluka}

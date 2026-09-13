@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic
+pydantic-settings
+psycopg2-binary
+python-jose[cryptography]
+bcrypt
+alembic
+slowapi

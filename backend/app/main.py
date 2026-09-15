@@ -12,7 +12,7 @@ from sqlalchemy import func
 import datetime
 
 from .config import get_settings
-from .db import Base, engine, get_db
+from .db import Base, engine, get_db, sync_missing_columns
 from . import models as m
 from .schemas import (
     SurveyIn, SurveyOut, FarmerLookup, LoginIn, TokenOut, UserOut, RefreshIn, LogoutIn,
@@ -30,6 +30,7 @@ from .email_utils import send_password_reset_email
 
 settings = get_settings()
 Base.metadata.create_all(bind=engine)
+sync_missing_columns()
 
 app = FastAPI(title="Arecanut Farmer Data Collection API", debug=not settings.is_production)
 

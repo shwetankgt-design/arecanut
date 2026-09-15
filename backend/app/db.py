@@ -35,3 +35,32 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def sync_missing_columns():
+    """
+    Lightweight, idempotent auto-migration: adds any mapped column that
+    exists in the SQLAlchemy models but not yet in the actual database table
+    (via ALTER TABLE ... ADD COLUMN). This app has no real migration tooling
+    wired up (Alembic is listed but unconfigured), and Base.metadata.create_all()
+    only ever creates missing *tables* — it silently does nothing for a column
+    added to an existing model, which would otherwise break every query
+    against that table in production the moment new code deploys.
+
+    Safe to call on every startup: each column is only added if genuinely
+    missing, so a warm/repeat call is just an inspection query.
+    """
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(engine)
+    for table in Base.metadata.sorted_tables:
+        if not inspector.has_table(table.name):
+            continue  # a brand-new table — create_all() already handled it
+        existing_cols = {c["name"] for c in inspector.get_columns(table.name)}
+        for column in table.columns:
+            if column.name in existing_cols:
+                continue
+            col_type = column.type.compile(dialect=engine.dialect)
+            ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {col_type}'
+            with engine.begin() as conn:
+                conn.execute(text(ddl))

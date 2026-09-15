@@ -17,3 +17,4 @@ frontend/android/keystore.properties
 keystore/
 
 .vercel
+*.apk

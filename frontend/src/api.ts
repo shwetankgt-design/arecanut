@@ -117,4 +117,9 @@ export const api = {
   deleteSurvey: (id: number) => req(`/surveys/${id}`, { method: "DELETE" }),
   dashboardKpis: () => req("/dashboard/kpis"),
   yieldBenchmarks: () => req("/dashboard/yield-benchmarks"),
+  getPlotBoundary: (surveyId: number) => req(`/surveys/${surveyId}/plot-boundary`),
+  savePlotBoundary: (surveyId: number, data: { points: { lat: number; lng: number }[]; area_acres: number; method: string }) =>
+    req(`/surveys/${surveyId}/plot-boundary`, { method: "PUT", body: JSON.stringify(data) }),
+  deletePlotBoundary: (surveyId: number) => req(`/surveys/${surveyId}/plot-boundary`, { method: "DELETE" }),
+  listPlots: (onlyWithBoundary = true) => req(`/plots?only_with_boundary=${onlyWithBoundary}`),
 };

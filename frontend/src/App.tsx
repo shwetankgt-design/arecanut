@@ -5,6 +5,8 @@ import FarmerList from "./pages/FarmerList";
 import DataEntryWizard from "./pages/DataEntryWizard";
 import MasterData from "./pages/MasterData";
 import SurveyView from "./pages/SurveyView";
+import PlotBoundaryCapture from "./pages/PlotBoundaryCapture";
+import PlotsRegistry from "./pages/PlotsRegistry";
 import Login from "./pages/Login";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
@@ -27,6 +29,8 @@ export default function App() {
                 <Route path="/entry" element={<DataEntryWizard />} />
                 <Route path="/farmers" element={<FarmerList />} />
                 <Route path="/farmers/:id" element={<SurveyView />} />
+                <Route path="/farmers/:id/plot-boundary" element={<PlotBoundaryCapture />} />
+                <Route path="/plots" element={<PlotsRegistry />} />
                 <Route path="/masters" element={<MasterData />} />
               </Route>
             </Route>

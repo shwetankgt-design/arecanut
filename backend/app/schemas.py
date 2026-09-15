@@ -178,3 +178,41 @@ class SurveyOut(SurveyIn):
     total_income_inr: float
     entry_timestamp: datetime
     created_by_user_id: Optional[int] = None
+    plot_boundary: Optional[str] = None
+    plot_boundary_area_acres: Optional[float] = None
+    plot_boundary_method: Optional[str] = None
+    plot_boundary_captured_at: Optional[datetime] = None
+
+
+# ---------------- Plot Boundary Capture (v2) ----------------
+
+class LatLngPoint(BaseModel):
+    lat: float = Field(..., ge=-90, le=90)
+    lng: float = Field(..., ge=-180, le=180)
+
+
+class PlotBoundaryIn(BaseModel):
+    points: list[LatLngPoint] = Field(..., min_length=3, max_length=2000)
+    area_acres: float = Field(..., ge=0, le=100000)
+    method: str = Field(..., pattern="^(draw|excel|gps)$")
+
+
+class PlotBoundaryOut(BaseModel):
+    survey_id: int
+    points: list[LatLngPoint]
+    area_acres: float
+    method: str
+    captured_at: Optional[datetime] = None
+
+
+class PlotSummaryOut(BaseModel):
+    survey_id: int = Field(..., alias="id")
+    farmer_name: str
+    village: str
+    taluka: str
+    district: str
+    areca_area_acres: float
+    plot_boundary: Optional[str] = None
+    plot_boundary_area_acres: Optional[float] = None
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)

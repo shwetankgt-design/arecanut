@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   CheckCircle2, Pencil, ArrowLeft, UserSearch, Handshake, MapPin, LandPlot, Wheat,
   Coins, Warehouse, TriangleAlert, Sprout, Wrench, Truck, Smartphone, CreditCard,
-  Landmark, Droplets, FlaskConical, ScanLine,
+  Landmark, Droplets, FlaskConical, ScanLine, Map,
 } from "lucide-react";
 import { api } from "../api";
 import { useLang } from "../LangContext";
@@ -64,15 +64,28 @@ export default function SurveyView() {
           <button className="gt-btn-secondary flex items-center gap-1.5" onClick={() => navigate("/farmers")}>
             <ArrowLeft size={15} /> Back to List
           </button>
+          <button className="gt-btn-secondary flex items-center gap-1.5" onClick={() => navigate(`/farmers/${s.id}/plot-boundary`)}>
+            <Map size={15} /> Plot Boundary
+          </button>
           <button className="gt-btn-primary flex items-center gap-1.5" onClick={() => navigate(`/entry?id=${s.id}`)}>
             <Pencil size={15} /> Edit
           </button>
         </div>
       </div>
 
-      <div className="gt-card p-4 bg-[#F1EBF7] border-none">
-        <div className="text-xs text-[var(--gt-text-muted)]">Total Income from Areca (auto-calculated)</div>
-        <div className="text-2xl font-bold text-[var(--gt-purple-dark)]">₹{s.total_income_inr.toLocaleString("en-IN")}</div>
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="gt-card p-4 bg-[#F1EBF7] border-none">
+          <div className="text-xs text-[var(--gt-text-muted)]">Total Income from Areca (auto-calculated)</div>
+          <div className="text-2xl font-bold text-[var(--gt-purple-dark)]">₹{s.total_income_inr.toLocaleString("en-IN")}</div>
+        </div>
+        <div className="gt-card p-4 bg-[#F1EBF7] border-none">
+          <div className="text-xs text-[var(--gt-text-muted)]">Mapped Plot Area</div>
+          {s.plot_boundary_area_acres ? (
+            <div className="text-2xl font-bold text-[var(--gt-purple-dark)]">{s.plot_boundary_area_acres} acres <span className="text-xs font-normal text-[var(--gt-text-muted)]">via {s.plot_boundary_method}</span></div>
+          ) : (
+            <div className="text-sm text-[var(--gt-text-muted)] mt-1">Not captured yet — use "Plot Boundary" above.</div>
+          )}
+        </div>
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">

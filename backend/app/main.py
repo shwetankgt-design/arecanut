@@ -16,8 +16,9 @@ from .db import Base, engine, get_db
 from . import models as m
 from .schemas import (
     SurveyIn, SurveyOut, FarmerLookup, LoginIn, TokenOut, UserOut, RefreshIn, LogoutIn,
-    ForgotPasswordIn, ResetPasswordIn,
+    ForgotPasswordIn, ResetPasswordIn, PlotBoundaryIn, PlotBoundaryOut, PlotSummaryOut,
 )
+import json as _json
 from .auth import (
     verify_password, hash_password, validate_password_strength, create_access_token,
     get_current_user, require_role,
@@ -410,6 +411,88 @@ def delete_survey(
     db.commit()
     audit(db, request, "survey_delete", user=user, resource=f"survey:{survey_id}")
     return {"ok": True}
+
+
+# ---------------- PLOT BOUNDARY CAPTURE (v2) ----------------
+# Separate from the survey's own PUT so saving a boundary (draw / Excel / GPS)
+# never requires re-submitting — or re-validating — the entire 60+ field survey.
+
+@app.get("/api/surveys/{survey_id}/plot-boundary", response_model=Optional[PlotBoundaryOut])
+def get_plot_boundary(survey_id: int, db: Session = Depends(get_db), user: m.User = Depends(get_current_user)):
+    survey = db.query(m.FarmerSurvey).get(survey_id)
+    if not survey:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    if not survey.plot_boundary:
+        return None
+    return PlotBoundaryOut(
+        survey_id=survey.id,
+        points=_json.loads(survey.plot_boundary),
+        area_acres=survey.plot_boundary_area_acres or 0,
+        method=survey.plot_boundary_method or "draw",
+        captured_at=survey.plot_boundary_captured_at,
+    )
+
+
+@app.put("/api/surveys/{survey_id}/plot-boundary", response_model=PlotBoundaryOut)
+def save_plot_boundary(
+    survey_id: int,
+    payload: PlotBoundaryIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: m.User = Depends(require_role("admin", "enumerator")),
+):
+    survey = db.query(m.FarmerSurvey).get(survey_id)
+    if not survey:
+        raise HTTPException(status_code=404, detail="Survey not found")
+
+    survey.plot_boundary = _json.dumps([p.model_dump() for p in payload.points])
+    survey.plot_boundary_area_acres = payload.area_acres
+    survey.plot_boundary_method = payload.method
+    survey.plot_boundary_captured_at = datetime.datetime.utcnow()
+    db.commit()
+    db.refresh(survey)
+    audit(db, request, "plot_boundary_save", user=user, resource=f"survey:{survey.id}", detail=f"method={payload.method}, points={len(payload.points)}")
+
+    return PlotBoundaryOut(
+        survey_id=survey.id,
+        points=[p.model_dump() for p in payload.points],
+        area_acres=survey.plot_boundary_area_acres,
+        method=survey.plot_boundary_method,
+        captured_at=survey.plot_boundary_captured_at,
+    )
+
+
+@app.delete("/api/surveys/{survey_id}/plot-boundary")
+def delete_plot_boundary(
+    survey_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: m.User = Depends(require_role("admin", "enumerator")),
+):
+    survey = db.query(m.FarmerSurvey).get(survey_id)
+    if not survey:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    survey.plot_boundary = None
+    survey.plot_boundary_area_acres = None
+    survey.plot_boundary_method = None
+    survey.plot_boundary_captured_at = None
+    db.commit()
+    audit(db, request, "plot_boundary_delete", user=user, resource=f"survey:{survey_id}")
+    return {"ok": True}
+
+
+@app.get("/api/plots", response_model=list[PlotSummaryOut])
+def list_plots(
+    only_with_boundary: bool = Query(False),
+    db: Session = Depends(get_db),
+    user: m.User = Depends(get_current_user),
+):
+    """Lightweight feed for the read-only plots registry map — only the fields
+    the map needs, not the full 60+ field survey record."""
+    query = db.query(m.FarmerSurvey)
+    if only_with_boundary:
+        query = query.filter(m.FarmerSurvey.plot_boundary.isnot(None))
+    return query.order_by(m.FarmerSurvey.id).limit(1000).all()
 
 
 # ---------------- DASHBOARD KPIs ----------------

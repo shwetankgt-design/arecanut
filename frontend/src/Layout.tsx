@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LayoutDashboard, ClipboardList, PlusCircle, Users, Languages, WifiOff, RefreshCw, LogOut, UserCircle } from "lucide-react";
+import { LayoutDashboard, ClipboardList, PlusCircle, Users, Languages, WifiOff, RefreshCw, LogOut, UserCircle, Map } from "lucide-react";
 import { useLang } from "./LangContext";
 import { tr } from "./i18n";
 import { useAuth } from "./AuthContext";
@@ -100,6 +100,7 @@ export default function Layout() {
             { to: "/", label: tr("navDashboard", lang), icon: LayoutDashboard, end: true },
             { to: "/entry", label: tr("navNewSurveyEntry", lang), icon: PlusCircle, end: false },
             { to: "/farmers", label: tr("navFarmerRecords", lang), icon: Users, end: false },
+            { to: "/plots", label: "Plots Map", icon: Map, end: false },
             { to: "/masters", label: tr("navMasterData", lang), icon: ClipboardList, end: false },
           ].map(({ to, label, icon: Icon, end }) => (
             <NavLink

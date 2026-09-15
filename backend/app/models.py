@@ -247,3 +247,12 @@ class FarmerSurvey(Base):
     enumerator_name = Column(String, nullable=True)
     created_by_user_id = Column(Integer, ForeignKey("auth_user.id"), nullable=True)
     client_uuid = Column(String, unique=True, nullable=True, index=True)  # dedupes offline-queued submissions
+
+    # Plot Boundary Capture (v2): ordered polygon vertices as JSON text
+    # [{"lat":..,"lng":..}, ...] — captured via draw-on-map, Excel upload, or
+    # GPS walk. Kept as one JSON blob rather than a child table since it's
+    # always read/written whole, never queried by vertex.
+    plot_boundary = Column(Text, nullable=True)
+    plot_boundary_area_acres = Column(Float, nullable=True)
+    plot_boundary_method = Column(String, nullable=True)  # "draw" | "excel" | "gps"
+    plot_boundary_captured_at = Column(DateTime, nullable=True)

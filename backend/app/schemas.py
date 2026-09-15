@@ -1,4 +1,5 @@
 import re
+import json
 from typing import Optional
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -140,6 +141,10 @@ class SurveyIn(BaseModel):
     enumerator_name: Optional[str] = Field(None, max_length=STR_MAX)
     client_uuid: Optional[str] = Field(None, max_length=100)  # set by the app when queued offline, for de-duplication on sync
 
+    plot_boundary: Optional[str] = Field(None, max_length=TEXT_MAX)
+    plot_boundary_area_acres: Optional[float] = Field(None, ge=0, le=1_000_000)
+    plot_boundary_method: Optional[str] = Field(None, max_length=20)
+
     @field_validator("mobile_no")
     @classmethod
     def validate_mobile(cls, v: str) -> str:
@@ -169,6 +174,16 @@ class SurveyIn(BaseModel):
         total_land = (self.land_own_acres or 0) + (self.land_leased_acres or 0)
         if self.areca_area_acres > total_land:
             raise ValueError("areca_area_acres cannot exceed total own + leased land")
+        return self
+
+    @model_validator(mode="after")
+    def plot_boundary_required(self):
+        try:
+            points = json.loads(self.plot_boundary) if self.plot_boundary else []
+        except (ValueError, TypeError):
+            points = []
+        if not isinstance(points, list) or len(points) < 3:
+            raise ValueError("plot_boundary is mandatory — capture at least 3 points via Draw on Map, Excel upload, or GPS walk")
         return self
 
 

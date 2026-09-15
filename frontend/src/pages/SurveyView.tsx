@@ -217,7 +217,6 @@ export default function SurveyView() {
         <Section icon={ScanLine} title="Geo-tag & Metadata">
           <Row label="Geo Location" value={s.geo_lat ? `${s.geo_lat}, ${s.geo_long}` : null} />
           <Row label="Field Photo" value={s.field_photo} />
-          <Row label="Enumerator" value={s.enumerator_name} />
           <Row label="Entry Timestamp" value={s.entry_timestamp ? new Date(s.entry_timestamp).toLocaleString() : null} />
         </Section>
       </div>

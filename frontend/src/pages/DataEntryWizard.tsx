@@ -4,12 +4,24 @@ import {
   ChevronLeft, ChevronRight, Search, CheckCircle2, MapPin, Camera, Check,
   UserSearch, Handshake, LandPlot, Wheat, Coins, Warehouse,
   TriangleAlert, Sprout, Wrench, CreditCard, Landmark, Droplets, FlaskConical,
-  Truck, Smartphone, ScanLine, AlertCircle,
+  Truck, Smartphone, ScanLine, AlertCircle, UploadCloud, Navigation,
 } from "lucide-react";
+import { Geolocation } from "@capacitor/geolocation";
+import { Capacitor } from "@capacitor/core";
 import { api } from "../api";
 import { trDistrict, trTaluka, trVillage, tr } from "../i18n";
 import { useLang } from "../LangContext";
 import { queueSurvey } from "../offlineQueue";
+import DrawMapTab from "../components/plot/DrawMapTab";
+import ExcelUploadTab from "../components/plot/ExcelUploadTab";
+import GpsCaptureTab from "../components/plot/GpsCaptureTab";
+import { areaInAcres, formatArea, validateBoundary, type CaptureMethod, type PlotBoundary } from "../lib/plotBoundary";
+
+const PLOT_METHODS: { key: CaptureMethod; label: string; icon: any }[] = [
+  { key: "draw", label: "Draw on Map", icon: MapPin },
+  { key: "excel", label: "Upload Excel", icon: UploadCloud },
+  { key: "gps", label: "GPS Walk", icon: Navigation },
+];
 
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
@@ -46,7 +58,7 @@ const empty: any = {
   soil_test_done: "No", crop_insurance: "No", crop_insurance_detail: "",
   input_source: "Society", input_distance_km: "", input_challenges: "",
   tech_adoption: "No", tech_adoption_detail: "",
-  geo_lat: "", geo_long: "", field_photo: "", enumerator_name: "",
+  geo_lat: "", geo_long: "", field_photo: "",
 };
 
 // Maps every validated field to the tab it lives on, so a submit-time error can
@@ -245,6 +257,12 @@ export default function DataEntryWizard() {
           mech_rental_rate: s.mech_rental_rate_inr_hr ? JSON.parse(s.mech_rental_rate_inr_hr) : {},
           irrigation_source: s.irrigation_source ? s.irrigation_source.split(",") : [],
         });
+        if (s.plot_boundary) {
+          try {
+            setPlotPoints(JSON.parse(s.plot_boundary));
+            if (s.plot_boundary_method) setPlotMethod(s.plot_boundary_method as CaptureMethod);
+          } catch {}
+        }
       });
     }
   }, [editId]);
@@ -290,31 +308,62 @@ export default function DataEntryWizard() {
   };
 
   const [geoStatus, setGeoStatus] = useState<"idle" | "locating" | "done" | "error">("idle");
+  const [geoError, setGeoError] = useState<string | null>(null);
 
-  const captureGeo = () => {
-    if (!navigator.geolocation) {
-      setGeoStatus("error");
-      return;
+  const [plotMethod, setPlotMethod] = useState<CaptureMethod>("gps");
+  const [plotPoints, setPlotPoints] = useState<PlotBoundary>([]);
+  const plotArea = areaInAcres(plotPoints);
+  const plotValidation = validateBoundary(plotPoints);
+
+  const switchPlotMethod = (next: CaptureMethod) => {
+    if (next === plotMethod) return;
+    if (plotPoints.length > 0) {
+      const ok = window.confirm("Switching methods will discard the in-progress plot boundary. Continue?");
+      if (!ok) return;
     }
-    setGeoStatus("locating");
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        set("geo_lat", pos.coords.latitude.toFixed(6));
-        set("geo_long", pos.coords.longitude.toFixed(6));
-        setGeoStatus("done");
-      },
-      () => setGeoStatus("error"),
-      { enableHighAccuracy: true, timeout: 10000 },
-    );
+    setPlotPoints([]);
+    setPlotMethod(next);
   };
 
-  // Auto-capture device GPS as soon as the survey form is opened, so every
-  // entry (and any photo taken later) is geo-tagged automatically without
-  // the enumerator having to remember a manual step.
+  // Uses @capacitor/geolocation so the same call works via the browser
+  // Geolocation API on web and via native GPS on the packaged Android app.
+  const captureGeo = async () => {
+    setGeoStatus("locating");
+    setGeoError(null);
+    try {
+      if (Capacitor.getPlatform() === "web" && !window.isSecureContext) {
+        throw new Error("Location requires a secure connection (HTTPS) — this page is being served over plain HTTP.");
+      }
+      const perm = await Geolocation.requestPermissions().catch(() => null);
+      if (perm && perm.location === "denied") {
+        throw new Error("Location permission denied — enable it in your device/browser settings.");
+      }
+      const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 10000 });
+      set("geo_lat", pos.coords.latitude.toFixed(6));
+      set("geo_long", pos.coords.longitude.toFixed(6));
+      setGeoStatus("done");
+    } catch (e: any) {
+      const code = e?.code;
+      if (code === 1) setGeoError("Location permission denied — enable it in your device/browser settings.");
+      else if (code === 3) setGeoError("Location request timed out — try again where GPS signal is stronger.");
+      else setGeoError(e?.message || "Could not access device GPS. Enable location and retry.");
+      setGeoStatus("error");
+    }
+  };
+
+  // Auto-capture device GPS the first time the enumerator actually reaches the
+  // Geo-tag & Review step — NOT on wizard mount. Requesting location the instant
+  // the form opens (while the enumerator is still on "Farmer & Location") fires
+  // the permission prompt somewhere the enumerator isn't looking; if it's missed
+  // or dismissed, most browsers cache that as a permanent denial for the site,
+  // and no in-app "Retry" can undo a browser-cached decision. Firing it only when
+  // this step becomes visible means the prompt appears exactly when expected.
   useEffect(() => {
-    captureGeo();
+    if (step === STEPS.length - 1 && geoStatus === "idle") {
+      captureGeo();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [step]);
 
   const attachPhoto = () => {
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -335,6 +384,11 @@ export default function DataEntryWizard() {
       setErrors(validationErrors);
       jumpToFirstError(validationErrors);
       setSubmitError(`Please fix ${Object.keys(validationErrors).length} error(s) before submitting.`);
+      return;
+    }
+    if (!plotValidation.valid) {
+      setStep(STEPS.length - 1);
+      setSubmitError("Plot boundary is mandatory — capture it via Draw on Map, Excel upload, or GPS walk before submitting.");
       return;
     }
 
@@ -371,6 +425,9 @@ export default function DataEntryWizard() {
       input_distance_km: form.input_distance_km ? parseFloat(form.input_distance_km) : null,
       geo_lat: form.geo_lat ? parseFloat(form.geo_lat) : null,
       geo_long: form.geo_long ? parseFloat(form.geo_long) : null,
+      plot_boundary: plotValidation.valid ? JSON.stringify(plotPoints) : null,
+      plot_boundary_area_acres: plotValidation.valid ? plotArea : null,
+      plot_boundary_method: plotValidation.valid ? plotMethod : null,
     };
     delete payload.id;
     delete payload.entry_timestamp;
@@ -792,7 +849,10 @@ export default function DataEntryWizard() {
         {step === 7 && (
           <>
             <div className="grid md:grid-cols-2 gap-x-4 mb-2">
-              <Field label="Geo-location (auto-captured)">
+              <Field label="Geo-location">
+                {geoStatus === "idle" && (
+                  <button type="button" className="gt-btn-secondary flex items-center gap-1.5 w-fit" onClick={captureGeo}><MapPin size={16} /> Detect My Location</button>
+                )}
                 {geoStatus === "locating" && (
                   <div className="text-xs flex items-center gap-1.5 text-[var(--gt-text-muted)]"><MapPin size={14} className="animate-pulse" /> Fetching device GPS…</div>
                 )}
@@ -803,7 +863,10 @@ export default function DataEntryWizard() {
                 )}
                 {geoStatus === "error" && (
                   <div className="flex flex-col gap-2">
-                    <div className="text-xs text-[var(--gt-danger)]">Could not access device GPS. Enable location and retry.</div>
+                    <div className="text-xs text-[var(--gt-danger)]">{geoError || "Could not access device GPS. Enable location and retry."}</div>
+                    <div className="text-[11px] text-[var(--gt-text-muted)]">
+                      If your browser previously blocked location for this site, "Retry" won't help — clear it from the browser's site settings (tap the lock icon next to the address bar → Permissions → Location) and try again.
+                    </div>
                     <button type="button" className="gt-btn-secondary flex items-center gap-1.5 w-fit" onClick={captureGeo}><MapPin size={16} /> Retry GPS</button>
                   </div>
                 )}
@@ -822,7 +885,50 @@ export default function DataEntryWizard() {
                   </div>
                 )}
               </Field>
-              <Field label="Enumerator Name"><input className="gt-input" value={form.enumerator_name} onChange={(e) => set("enumerator_name", e.target.value)} /></Field>
+            </div>
+
+            <div className="mb-2">
+              <div className="font-semibold text-sm mb-1 text-[var(--gt-purple-dark)]">Plot Boundary <span className="text-[var(--gt-danger)]">*</span></div>
+              <p className="text-xs text-[var(--gt-text-muted)] mb-3">
+                Map the exact plot boundary — draw it on the map, upload GPS points from Excel/CSV, or walk the boundary with the device GPS. This is required before the survey can be submitted; it can still be edited later from the farmer's record.
+              </p>
+
+              <div className="flex gap-2 overflow-x-auto pb-1 mb-3">
+                {PLOT_METHODS.map(({ key, label, icon: Icon }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => switchPlotMethod(key)}
+                    className={`shrink-0 flex items-center gap-1.5 text-sm font-medium px-3.5 py-2 rounded-full border whitespace-nowrap transition-colors ${
+                      plotMethod === key
+                        ? "gt-gradient text-white border-transparent shadow-sm"
+                        : "bg-white text-[var(--gt-text-muted)] border-[var(--gt-border)]"
+                    }`}
+                  >
+                    <Icon size={15} /> {label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="gt-card p-3 flex items-center gap-4 text-sm mb-3">
+                <span><b>{plotPoints.length}</b> vertices</span>
+                <span className="text-[var(--gt-purple-dark)] font-semibold">{formatArea(plotArea)}</span>
+                {form.areca_area_acres && plotPoints.length >= 3 && (
+                  <span className="text-xs text-[var(--gt-text-muted)]">Declared areca area: {form.areca_area_acres} acres</span>
+                )}
+              </div>
+
+              <div className="gt-card p-4">
+                {plotMethod === "draw" && <DrawMapTab points={plotPoints} onChange={setPlotPoints} />}
+                {plotMethod === "excel" && <ExcelUploadTab onParsed={setPlotPoints} />}
+                {plotMethod === "gps" && <GpsCaptureTab points={plotPoints} onChange={setPlotPoints} />}
+              </div>
+
+              {plotPoints.length > 0 && !plotValidation.valid && (
+                <div className="flex items-center gap-2 bg-red-50 border border-[var(--gt-danger)]/30 text-[var(--gt-danger)] text-xs rounded-lg px-3 py-2 mt-3">
+                  <AlertCircle size={14} /> {plotValidation.error}
+                </div>
+              )}
             </div>
 
             <div className="gt-card p-4 bg-[#F1EBF7] border-none">

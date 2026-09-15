@@ -369,6 +369,8 @@ def create_survey(
     data["total_income_inr"] = compute_income(payload)
     data["entry_timestamp"] = datetime.datetime.utcnow()
     data["created_by_user_id"] = user.id
+    if data.get("plot_boundary"):
+        data["plot_boundary_captured_at"] = datetime.datetime.utcnow()
     survey = m.FarmerSurvey(**data)
     db.add(survey)
     db.commit()
@@ -390,6 +392,8 @@ def update_survey(
         raise HTTPException(status_code=404, detail="Survey not found")
     data = payload.dict()
     data["total_income_inr"] = compute_income(payload)
+    if data.get("plot_boundary") and data.get("plot_boundary") != survey.plot_boundary:
+        data["plot_boundary_captured_at"] = datetime.datetime.utcnow()
     for k, v in data.items():
         setattr(survey, k, v)
     db.commit()

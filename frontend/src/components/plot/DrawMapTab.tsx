@@ -193,13 +193,15 @@ export default function DrawMapTab({ points, onChange }: Props) {
       )}
 
       {status !== "error" && (
-        <div
-          ref={mapDivRef}
-          className="w-full rounded-xl border border-[var(--gt-border)] bg-[#F1EBF7]"
-          style={{ height: 360 }}
-        >
+        <div className="relative w-full rounded-xl border border-[var(--gt-border)] bg-[#F1EBF7]" style={{ height: 360 }}>
+          {/* Google Maps takes ownership of this div's DOM directly (outside React's
+              control) once loaded, so it must never have React-rendered children —
+              mixing the two causes a removeChild crash when React later tries to
+              unmount a node Maps has already replaced. The loading indicator is a
+              sibling overlay instead. */}
+          <div ref={mapDivRef} className="w-full h-full rounded-xl" />
           {status === "loading" && (
-            <div className="w-full h-full flex items-center justify-center text-sm text-[var(--gt-text-muted)]">
+            <div className="absolute inset-0 flex items-center justify-center text-sm text-[var(--gt-text-muted)] pointer-events-none">
               <MapPinned size={18} className="animate-pulse mr-2" /> Loading map…
             </div>
           )}

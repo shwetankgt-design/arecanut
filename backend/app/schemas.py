@@ -81,22 +81,38 @@ class SurveyIn(BaseModel):
     land_leased_acres: Optional[float] = Field(0, ge=0, le=100000)
     areca_area_acres: float = Field(..., ge=0, le=100000)
     areca_plant_count: int = Field(..., ge=0, le=10_000_000)
+    organic_farming: Optional[str] = Field(None, max_length=10)
+    organic_certified: Optional[str] = Field(None, max_length=10)
+    organic_cert_applied: Optional[str] = Field(None, max_length=10)
+    organic_cert_aware: Optional[str] = Field(None, max_length=10)
+    intercropping: Optional[str] = Field(None, max_length=10)
+    intercrop_crops: Optional[str] = Field(None, max_length=TEXT_MAX)
+    intercrop_area_acres: Optional[float] = Field(None, ge=0, le=100000)
 
     cultivation_cost_inr: float = Field(..., ge=0, le=1_000_000_000)
-    yield_raw_qtl: float = Field(..., ge=0, le=1_000_000)
+    yield_raw_qtl: Optional[float] = Field(None, ge=0, le=1_000_000)  # required only when sale_type is "Sold raw areca"
+    yield_processed_qtl: Optional[float] = Field(None, ge=0, le=1_000_000)
 
     sale_type: str = Field(..., max_length=50)
     processing_cost_inr: Optional[float] = Field(None, ge=0, le=1_000_000_000)
     marketing_channel: str = Field(..., max_length=STR_MAX)
+    marketing_channel_detail: Optional[str] = Field(None, max_length=STR_MAX)
     rate_inr_per_kg: float = Field(..., ge=0, le=1_000_000)
     sale_month: str = Field(..., max_length=20)
 
     storage_duration_months: Optional[float] = Field(None, ge=0, le=1200)
     storage_source: Optional[str] = Field(None, max_length=STR_MAX)
+    storage_loan_availed: Optional[str] = Field(None, max_length=10)
+    storage_loan_amount_inr: Optional[float] = Field(None, ge=0, le=1_000_000_000)
+    storage_loan_interest_pct: Optional[float] = Field(None, ge=0, le=100)
+    storage_loan_repayment_months: Optional[int] = Field(None, ge=0, le=1200)
+    storage_warehouse_receipt: Optional[str] = Field(None, max_length=10)
     logistics_provider: Optional[str] = Field(None, max_length=STR_MAX)
+    logistics_provider_other: Optional[str] = Field(None, max_length=STR_MAX)
     logistics_cost_inr_per_qtl: Optional[float] = Field(None, ge=0, le=1_000_000)
 
     cultivation_challenges: Optional[str] = Field(None, max_length=TEXT_MAX)
+    machinery_waiting_days: Optional[int] = Field(None, ge=0, le=3650)
 
     crop2_name: Optional[str] = Field(None, max_length=STR_MAX)
     crop2_area_acres: Optional[float] = Field(None, ge=0, le=100000)
@@ -110,12 +126,25 @@ class SurveyIn(BaseModel):
     mech_owned: Optional[str] = Field(None, max_length=TEXT_MAX)
     mech_rented: Optional[str] = Field(None, max_length=TEXT_MAX)
     mech_rental_rate_inr_hr: Optional[str] = Field(None, max_length=TEXT_MAX)
+    mech_financed: Optional[str] = Field(None, max_length=10)
+    mech_loan_amount_inr_lakh: Optional[float] = Field(None, ge=0, le=1_000_000)
+    mech_loan_interest_pct: Optional[float] = Field(None, ge=0, le=100)
+
+    total_household_income_inr_lakh: Optional[float] = Field(None, ge=0, le=1_000_000)
+    non_farm_income_source: Optional[str] = Field(None, max_length=TEXT_MAX)
+    bank_account: Optional[str] = Field(None, max_length=10)
+    overdraft_facility: Optional[str] = Field(None, max_length=10)
+    overdraft_limit_inr_lakh: Optional[float] = Field(None, ge=0, le=1_000_000)
 
     credit_linkage: str = Field(..., max_length=10)
     credit_source: Optional[str] = Field(None, max_length=STR_MAX)
     credit_amount_inr: Optional[float] = Field(None, ge=0, le=1_000_000_000)
     credit_interest_rate_pct: Optional[float] = Field(None, ge=0, le=100)
     credit_repayment_months: Optional[int] = Field(None, ge=0, le=1200)
+    credit_outstanding_inr_lakh: Optional[float] = Field(None, ge=0, le=1_000_000)
+    loan_application_outcome: Optional[str] = Field(None, max_length=STR_MAX)
+    loan_rejection_reason: Optional[str] = Field(None, max_length=STR_MAX)
+    credit_gap_inr_lakh: Optional[float] = Field(None, ge=0, le=1_000_000)
 
     scheme_availed: str = Field(..., max_length=10)
     scheme_name: Optional[str] = Field(None, max_length=STR_MAX)
@@ -127,18 +156,25 @@ class SurveyIn(BaseModel):
     soil_test_done: str = Field(..., max_length=10)
     crop_insurance: str = Field(..., max_length=10)
     crop_insurance_detail: Optional[str] = Field(None, max_length=TEXT_MAX)
+    natural_calamity_5yr: Optional[str] = Field(None, max_length=10)
 
     input_source: str = Field(..., max_length=STR_MAX)
     input_distance_km: Optional[float] = Field(None, ge=0, le=100000)
     input_challenges: Optional[str] = Field(None, max_length=STR_MAX)
+    input_challenges_other: Optional[str] = Field(None, max_length=STR_MAX)
+    input_purchase_delay_days: Optional[int] = Field(None, ge=0, le=3650)
 
     tech_adoption: str = Field(..., max_length=10)
     tech_adoption_detail: Optional[str] = Field(None, max_length=TEXT_MAX)
 
+    kcc_account: Optional[str] = Field(None, max_length=10)
+    kcc_limit_inr_lakh: Optional[float] = Field(None, ge=0, le=1_000_000)
+
+    mobile_verified: Optional[bool] = False
+
     geo_lat: Optional[float] = Field(None, ge=-90, le=90)
     geo_long: Optional[float] = Field(None, ge=-180, le=180)
-    field_photo: Optional[str] = Field(None, max_length=500)
-    enumerator_name: Optional[str] = Field(None, max_length=STR_MAX)
+    field_photo: Optional[str] = Field(None, max_length=6_000_000)  # base64 data URL, client-compressed
     client_uuid: Optional[str] = Field(None, max_length=100)  # set by the app when queued offline, for de-duplication on sync
 
     plot_boundary: Optional[str] = Field(None, max_length=TEXT_MAX)
@@ -155,10 +191,13 @@ class SurveyIn(BaseModel):
     @field_validator(
         "society_assoc", "credit_linkage", "scheme_availed", "soil_test_done",
         "crop_insurance", "tech_adoption",
+        "organic_farming", "organic_certified", "organic_cert_applied", "organic_cert_aware",
+        "intercropping", "storage_loan_availed", "storage_warehouse_receipt", "mech_financed",
+        "bank_account", "overdraft_facility", "natural_calamity_5yr", "kcc_account",
     )
     @classmethod
-    def validate_yes_no(cls, v: str) -> str:
-        if v not in ("Yes", "No"):
+    def validate_yes_no(cls, v):
+        if v is not None and v not in ("Yes", "No"):
             raise ValueError('must be "Yes" or "No"')
         return v
 
@@ -168,6 +207,39 @@ class SurveyIn(BaseModel):
         if v <= 0:
             raise ValueError("areca_area_acres must be greater than 0")
         return v
+
+    @field_validator("land_own_acres", "land_leased_acres", "intercrop_area_acres")
+    @classmethod
+    def max_two_decimals(cls, v):
+        if v is not None and round(v, 2) != v:
+            raise ValueError("must have at most 2 decimal places")
+        return v
+
+    @field_validator("cultivation_cost_inr")
+    @classmethod
+    def whole_number_cost(cls, v: float) -> float:
+        if v != int(v):
+            raise ValueError("must be a whole number (no decimals)")
+        return v
+
+    @field_validator("yield_raw_qtl", "yield_processed_qtl")
+    @classmethod
+    def yield_positive_two_decimals(cls, v):
+        if v is None:
+            return v
+        if v <= 0:
+            raise ValueError("must be a positive value")
+        if round(v, 2) != v:
+            raise ValueError("must have at most 2 decimal places")
+        return v
+
+    @model_validator(mode="after")
+    def yield_matches_sale_type(self):
+        if self.sale_type == "Sold raw areca" and self.yield_raw_qtl is None:
+            raise ValueError("yield_raw_qtl is required for a raw areca sale")
+        if self.sale_type == "Sold processed areca" and self.yield_processed_qtl is None:
+            raise ValueError("yield_processed_qtl is required for a processed areca sale")
+        return self
 
     @model_validator(mode="after")
     def areca_area_within_land(self):
@@ -197,6 +269,20 @@ class SurveyOut(SurveyIn):
     plot_boundary_area_acres: Optional[float] = None
     plot_boundary_method: Optional[str] = None
     plot_boundary_captured_at: Optional[datetime] = None
+
+    # These two rules are intentionally input-only (create/update): they enforce
+    # requirements for new/edited data, but records saved before a requirement
+    # existed must still be readable — otherwise GET /api/surveys throws on any
+    # pre-existing row and the whole list disappears. Redefining the same
+    # validator name here overrides (neutralizes) the parent SurveyIn validator
+    # for this output-only subclass.
+    @model_validator(mode="after")
+    def plot_boundary_required(self):
+        return self
+
+    @model_validator(mode="after")
+    def yield_matches_sale_type(self):
+        return self
 
 
 # ---------------- Plot Boundary Capture (v2) ----------------

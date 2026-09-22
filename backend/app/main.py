@@ -221,8 +221,20 @@ def get_villages_flat(db: Session = Depends(get_db)):
 
 
 @app.get("/api/masters/societies")
-def get_societies(db: Session = Depends(get_db)):
-    return [s.name for s in db.query(m.Society).order_by(m.Society.name).all()]
+def get_societies(taluka: Optional[str] = None, db: Session = Depends(get_db)):
+    """
+    Without a taluka filter, returns every society (used by admin screens / legacy
+    lookups). With ?taluka=NAME, returns only FPCs/societies mapped to that taluka
+    plus every state-level society — this is what the survey wizard's dynamic FPC
+    dropdown uses, per the client's "FPC list should be scoped to the selected
+    Taluka, plus State-level Societies" requirement.
+    """
+    q = db.query(m.Society)
+    if taluka:
+        taluka_row = db.query(m.Taluka).filter(m.Taluka.name == taluka).first()
+        taluka_id = taluka_row.id if taluka_row else -1
+        q = q.filter((m.Society.taluka_id == taluka_id) | (m.Society.is_state_level == True))  # noqa: E712
+    return [s.name for s in q.order_by(m.Society.name).all()]
 
 
 @app.get("/api/masters/crops")
@@ -344,7 +356,8 @@ def get_survey(survey_id: int, db: Session = Depends(get_db), user: m.User = Dep
 
 
 def compute_income(payload: SurveyIn) -> float:
-    gross = payload.yield_raw_qtl * payload.rate_inr_per_kg * 100
+    yield_qtl = payload.yield_processed_qtl if payload.sale_type == "Sold processed areca" else payload.yield_raw_qtl
+    gross = (yield_qtl or 0) * payload.rate_inr_per_kg * 100
     total = gross - payload.cultivation_cost_inr
     if payload.sale_type == "Sold processed areca" and payload.processing_cost_inr:
         total -= payload.processing_cost_inr

@@ -7,6 +7,7 @@ import {
   Truck, Smartphone, ScanLine, AlertCircle, UploadCloud, Navigation,
 } from "lucide-react";
 import { Geolocation } from "@capacitor/geolocation";
+import { Camera as CapacitorCamera, CameraResultType, CameraSource } from "@capacitor/camera";
 import { Capacitor } from "@capacitor/core";
 import { api } from "../api";
 import { trDistrict, trTaluka, trVillage, tr } from "../i18n";
@@ -24,6 +25,8 @@ const PLOT_METHODS: { key: CaptureMethod; label: string; icon: any }[] = [
 ];
 
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const CURRENT_YEAR = new Date().getFullYear();
+const YEAR_OPTIONS = Array.from({ length: CURRENT_YEAR - 1950 + 1 }, (_, i) => CURRENT_YEAR - i);
 
 // 17 data-collection modules regrouped into 8 broader tabs so the wizard has
 // fewer top-level steps to page through. Every field/module below keeps its
@@ -40,24 +43,33 @@ const STEPS = [
 ];
 
 const empty: any = {
-  farmer_id: "", farmer_name: "", mobile_no: "", gender: "Male", age: "", guardian_name: "",
+  farmer_id: "", farmer_name: "", mobile_no: "", mobile_verified: false, gender: "Male", age: "", guardian_name: "",
   society_assoc: "No", society_name: "", society_since_year: "", society_benefits: [],
   village: "", taluka: "", district: "",
   land_own_acres: "", land_leased_acres: "", areca_area_acres: "", areca_plant_count: "",
-  cultivation_cost_inr: "", yield_raw_qtl: "",
-  sale_type: "Sold raw areca", processing_cost_inr: "", marketing_channel: "FPO",
+  organic_farming: "No", organic_certified: "No", organic_cert_applied: "No", organic_cert_aware: "No",
+  intercropping: "No", intercrop_crops: [], intercrop_area_acres: "",
+  cultivation_cost_inr: "", yield_raw_qtl: "", yield_processed_qtl: "",
+  sale_type: "Sold raw areca", processing_cost_inr: "", marketing_channel: "FPC/FPO", marketing_channel_detail: "",
   rate_inr_per_kg: "", sale_month: "Jan",
-  storage_duration_months: "", storage_source: "", logistics_provider: "", logistics_cost_inr_per_qtl: "",
-  cultivation_challenges: [],
+  storage_duration_months: "", storage_source: "",
+  storage_loan_availed: "No", storage_loan_amount_inr: "", storage_loan_interest_pct: "", storage_loan_repayment_months: "", storage_warehouse_receipt: "No",
+  logistics_provider: "", logistics_provider_other: "", logistics_cost_inr_per_qtl: "",
+  cultivation_challenges: [], machinery_waiting_days: "",
   crop2_name: "", crop2_area_acres: "", crop2_yield: "", crop2_rate: "",
   crop3_name: "", crop3_area_acres: "", crop3_yield: "", crop3_rate: "",
   mech_owned: [], mech_rented: [], mech_rental_rate: {},
+  mech_financed: "No", mech_loan_amount_inr_lakh: "", mech_loan_interest_pct: "",
+  total_household_income_inr_lakh: "", non_farm_income_source: [],
+  bank_account: "No", overdraft_facility: "No", overdraft_limit_inr_lakh: "",
   credit_linkage: "No", credit_source: "", credit_amount_inr: "", credit_interest_rate_pct: "", credit_repayment_months: "",
+  credit_outstanding_inr_lakh: "", loan_application_outcome: "", loan_rejection_reason: "", credit_gap_inr_lakh: "",
   scheme_availed: "No", scheme_name: "", scheme_benefits: "",
   irrigation_source: [], irrigation_challenges: "",
-  soil_test_done: "No", crop_insurance: "No", crop_insurance_detail: "",
-  input_source: "Society", input_distance_km: "", input_challenges: "",
+  soil_test_done: "No", crop_insurance: "No", crop_insurance_detail: "", natural_calamity_5yr: "No",
+  input_source: "Cooperative Society", input_distance_km: "", input_challenges: "", input_challenges_other: "", input_purchase_delay_days: "",
   tech_adoption: "No", tech_adoption_detail: "",
+  kcc_account: "No", kcc_limit_inr_lakh: "",
   geo_lat: "", geo_long: "", field_photo: "",
 };
 
@@ -66,17 +78,33 @@ const empty: any = {
 const FIELD_STEP: Record<string, number> = {
   farmer_name: 0, mobile_no: 0, gender: 0, age: 0, farmer_id: 0,
   society_name: 0, society_since_year: 0, village: 0, taluka: 0, district: 0,
-  land_own_acres: 1, areca_area_acres: 1, areca_plant_count: 1, cultivation_cost_inr: 1, yield_raw_qtl: 1,
-  processing_cost_inr: 2, rate_inr_per_kg: 2,
+  land_own_acres: 1, land_leased_acres: 1, areca_area_acres: 1, areca_plant_count: 1, cultivation_cost_inr: 1, yield_raw_qtl: 1,
+  yield_processed_qtl: 1, intercrop_crops: 1, intercrop_area_acres: 1,
+  organic_certified: 1, organic_cert_applied: 1, organic_cert_aware: 1,
+  processing_cost_inr: 2, rate_inr_per_kg: 2, marketing_channel_detail: 2,
+  storage_loan_amount_inr: 2, storage_loan_interest_pct: 2, storage_loan_repayment_months: 2, logistics_provider_other: 2,
   crop2_area_acres: 3, crop2_yield: 3, crop2_rate: 3, crop3_area_acres: 3, crop3_yield: 3, crop3_rate: 3,
-  mech_rental_rate: 4, tech_adoption_detail: 4,
+  machinery_waiting_days: 3,
+  mech_rental_rate: 4, tech_adoption_detail: 4, mech_loan_amount_inr_lakh: 4, mech_loan_interest_pct: 4,
+  input_purchase_delay_days: 4,
   credit_source: 5, credit_amount_inr: 5, credit_interest_rate_pct: 5, credit_repayment_months: 5,
-  scheme_name: 5, scheme_benefits: 5,
+  scheme_name: 5, scheme_benefits: 5, loan_application_outcome: 5, loan_rejection_reason: 5,
+  overdraft_limit_inr_lakh: 5, kcc_limit_inr_lakh: 5,
   irrigation_source: 6, crop_insurance_detail: 6,
 };
 
 function isBlank(v: any) {
   return v === undefined || v === null || (typeof v === "string" && v.trim() === "") || (Array.isArray(v) && v.length === 0);
+}
+
+function hasMoreThanTwoDecimals(v: any) {
+  const n = Number(v);
+  return !isNaN(n) && Math.round(n * 100) !== n * 100;
+}
+
+function isWholeNumber(v: any) {
+  const n = Number(v);
+  return !isNaN(n) && Number.isInteger(n);
 }
 
 /** Full-form validation used both per-tab (on Next) and in full (on Submit).
@@ -103,37 +131,77 @@ function getErrors(form: any): Record<string, string> {
   // --- Land & Production ---
   if (isBlank(form.land_own_acres)) e.land_own_acres = "Own land holding is required.";
   else if (Number(form.land_own_acres) <= 0) e.land_own_acres = "Must be greater than 0.";
+  else if (hasMoreThanTwoDecimals(form.land_own_acres)) e.land_own_acres = "Maximum 2 decimal places.";
+  if (!isBlank(form.land_leased_acres) && hasMoreThanTwoDecimals(form.land_leased_acres)) e.land_leased_acres = "Maximum 2 decimal places.";
   if (isBlank(form.areca_area_acres)) e.areca_area_acres = "Areca cultivation area is required.";
   else if (Number(form.areca_area_acres) <= 0) e.areca_area_acres = "Must be greater than 0.";
   else if (Number(form.areca_area_acres) > (Number(form.land_own_acres) || 0) + (Number(form.land_leased_acres) || 0)) {
     e.areca_area_acres = "Cannot exceed total own + leased land.";
   }
   if (isBlank(form.areca_plant_count)) e.areca_plant_count = "Total plant count is required.";
-  else if (Number(form.areca_plant_count) <= 0) e.areca_plant_count = "Must be a whole number greater than 0.";
+  else if (Number(form.areca_plant_count) <= 0 || !isWholeNumber(form.areca_plant_count)) e.areca_plant_count = "Must be a whole number greater than 0.";
   if (isBlank(form.cultivation_cost_inr)) e.cultivation_cost_inr = "Cultivation cost is required.";
-  else if (Number(form.cultivation_cost_inr) <= 0) e.cultivation_cost_inr = "Must be greater than 0.";
-  if (isBlank(form.yield_raw_qtl)) e.yield_raw_qtl = "Raw yield is required.";
+  else if (Number(form.cultivation_cost_inr) <= 0 || !isWholeNumber(form.cultivation_cost_inr)) e.cultivation_cost_inr = "Must be a whole number greater than 0 (no decimals).";
+  if (form.organic_farming === "Yes" && isBlank(form.organic_certified)) e.organic_certified = "Please answer whether the farmer holds a certificate.";
+  if (form.organic_farming === "Yes" && form.organic_certified === "No" && isBlank(form.organic_cert_applied)) e.organic_cert_applied = "Please answer whether certification has been applied for.";
+  if (form.organic_farming === "Yes" && form.organic_certified === "No" && form.organic_cert_applied === "No" && isBlank(form.organic_cert_aware)) e.organic_cert_aware = "Please answer whether the farmer is aware of the certification process.";
+  if (form.intercropping === "Yes") {
+    if (isBlank(form.intercrop_crops)) e.intercrop_crops = "Select at least one intercrop.";
+    if (isBlank(form.intercrop_area_acres)) e.intercrop_area_acres = "Area under intercropping is required.";
+  }
 
   // --- Sales & Logistics ---
-  if (form.sale_type === "Sold processed areca" && isBlank(form.processing_cost_inr)) {
-    e.processing_cost_inr = "Processing cost is required for a processed sale.";
+  if (form.sale_type === "Sold raw areca") {
+    if (isBlank(form.yield_raw_qtl)) e.yield_raw_qtl = "Yield is required.";
+    else if (Number(form.yield_raw_qtl) <= 0) e.yield_raw_qtl = "Must be a positive value.";
+    else if (hasMoreThanTwoDecimals(form.yield_raw_qtl)) e.yield_raw_qtl = "Maximum 2 decimal places.";
+  }
+  if (form.sale_type === "Sold processed areca") {
+    if (isBlank(form.processing_cost_inr)) e.processing_cost_inr = "Processing cost is required for a processed sale.";
+    if (isBlank(form.yield_processed_qtl)) e.yield_processed_qtl = "Yield of processed nuts is required for a processed sale.";
+    else if (Number(form.yield_processed_qtl) <= 0) e.yield_processed_qtl = "Must be a positive value.";
+    else if (hasMoreThanTwoDecimals(form.yield_processed_qtl)) e.yield_processed_qtl = "Maximum 2 decimal places.";
+  }
+  if (form.input_challenges === "Other" && isBlank(form.input_challenges_other)) {
+    e.input_challenges_other = "Please specify the challenge.";
   }
   if (isBlank(form.rate_inr_per_kg)) e.rate_inr_per_kg = "Rate realised is required.";
   else if (Number(form.rate_inr_per_kg) <= 0) e.rate_inr_per_kg = "Must be greater than 0.";
+  if ((form.marketing_channel === "Cooperative Society" || form.marketing_channel === "APMC") && isBlank(form.marketing_channel_detail)) {
+    e.marketing_channel_detail = `Name of the ${form.marketing_channel} is required.`;
+  }
+  if (form.storage_source && form.storage_loan_availed === "Yes") {
+    if (isBlank(form.storage_loan_amount_inr)) e.storage_loan_amount_inr = "Loan/pledge amount is required.";
+    if (isBlank(form.storage_loan_interest_pct)) e.storage_loan_interest_pct = "Interest rate is required.";
+    if (isBlank(form.storage_loan_repayment_months)) e.storage_loan_repayment_months = "Repayment period is required.";
+  }
+  if (form.logistics_provider === "Any Other" && isBlank(form.logistics_provider_other)) {
+    e.logistics_provider_other = "Please specify the logistics provider.";
+  }
 
   // --- Diversification & Challenges ---
   [2, 3].forEach((n) => {
     if (!isBlank(form[`crop${n}_name`])) {
       if (isBlank(form[`crop${n}_area_acres`])) e[`crop${n}_area_acres`] = "Area is required once a crop name is entered.";
-      if (isBlank(form[`crop${n}_yield`])) e[`crop${n}_yield`] = "Yield is required once a crop name is entered.";
+      if (isBlank(form[`crop${n}_yield`])) e[`crop${n}_yield`] = "Total yield is required once a crop name is entered.";
       if (isBlank(form[`crop${n}_rate`])) e[`crop${n}_rate`] = "Rate is required once a crop name is entered.";
     }
   });
+  if (form.cultivation_challenges?.includes("Availability of Farm Machinery") && isBlank(form.machinery_waiting_days)) {
+    e.machinery_waiting_days = "Average waiting period is required.";
+  }
 
   // --- Mechanisation & Inputs ---
   if (form.mech_rented?.length) {
     const missingRate = form.mech_rented.some((mc: string) => isBlank(form.mech_rental_rate?.[mc]));
     if (missingRate) e.mech_rental_rate = "Enter an hourly rate for every rented machine.";
+  }
+  if (form.mech_owned?.length > 0 && form.mech_financed === "Yes") {
+    if (isBlank(form.mech_loan_amount_inr_lakh)) e.mech_loan_amount_inr_lakh = "Loan amount is required.";
+    if (isBlank(form.mech_loan_interest_pct)) e.mech_loan_interest_pct = "Interest rate is required.";
+  }
+  if (form.input_challenges === "Availability" && isBlank(form.input_purchase_delay_days)) {
+    e.input_purchase_delay_days = "Average delay in receiving inputs is required.";
   }
   if (form.tech_adoption === "Yes" && isBlank(form.tech_adoption_detail)) {
     e.tech_adoption_detail = "Please describe the technology used.";
@@ -146,7 +214,12 @@ function getErrors(form: any): Record<string, string> {
     if (isBlank(form.credit_interest_rate_pct)) e.credit_interest_rate_pct = "Interest rate is required.";
     else if (Number(form.credit_interest_rate_pct) < 0 || Number(form.credit_interest_rate_pct) > 100) e.credit_interest_rate_pct = "Enter a value between 0 and 100.";
     if (isBlank(form.credit_repayment_months)) e.credit_repayment_months = "Repayment period is required.";
+  } else if (form.credit_linkage === "No") {
+    if (isBlank(form.loan_application_outcome)) e.loan_application_outcome = "Please select the outcome of any previous loan application.";
+    if (form.loan_application_outcome === "Rejected" && isBlank(form.loan_rejection_reason)) e.loan_rejection_reason = "Please select a reason for rejection.";
   }
+  if (form.overdraft_facility === "Yes" && isBlank(form.overdraft_limit_inr_lakh)) e.overdraft_limit_inr_lakh = "Overdraft limit is required.";
+  if (form.kcc_account === "Yes" && isBlank(form.kcc_limit_inr_lakh)) e.kcc_limit_inr_lakh = "KCC limit is required.";
   if (form.scheme_availed === "Yes") {
     if (isBlank(form.scheme_name)) e.scheme_name = "Scheme name is required.";
     if (isBlank(form.scheme_benefits)) e.scheme_benefits = "Describe the benefits received.";
@@ -158,8 +231,29 @@ function getErrors(form: any): Record<string, string> {
     e.crop_insurance_detail = "Insurance detail is required.";
   }
 
+  // Catch-all: no numeric field anywhere in the survey may be negative. Specific
+  // checks above already give more precise messages for the fields they cover
+  // (e.g. "must be greater than 0"); this only fills the gap for every optional
+  // numeric field that had no dedicated check, so nothing negative slips through.
+  NONNEGATIVE_NUMERIC_FIELDS.forEach((f) => {
+    if (!e[f] && !isBlank(form[f]) && Number(form[f]) < 0) e[f] = "Cannot be negative.";
+  });
+
   return e;
 }
+
+const NONNEGATIVE_NUMERIC_FIELDS = [
+  "age", "society_since_year", "land_own_acres", "land_leased_acres", "areca_area_acres",
+  "areca_plant_count", "intercrop_area_acres", "cultivation_cost_inr", "yield_raw_qtl",
+  "yield_processed_qtl", "processing_cost_inr", "rate_inr_per_kg", "storage_duration_months",
+  "storage_loan_amount_inr", "storage_loan_interest_pct", "storage_loan_repayment_months",
+  "logistics_cost_inr_per_qtl", "machinery_waiting_days", "crop2_area_acres", "crop2_yield",
+  "crop2_rate", "crop3_area_acres", "crop3_yield", "crop3_rate", "mech_loan_amount_inr_lakh",
+  "mech_loan_interest_pct", "total_household_income_inr_lakh", "overdraft_limit_inr_lakh",
+  "credit_amount_inr", "credit_interest_rate_pct", "credit_repayment_months",
+  "credit_outstanding_inr_lakh", "credit_gap_inr_lakh", "kcc_limit_inr_lakh", "input_distance_km",
+  "input_purchase_delay_days",
+];
 
 function Field({ label, required, error, children }: any) {
   return (
@@ -223,27 +317,55 @@ export default function DataEntryWizard() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const [villagesFlat, setVillagesFlat] = useState<{ village: string; taluka: string; district: string }[]>([]);
+  const [districtOptions, setDistrictOptions] = useState<string[]>([]);
+  const [talukaOptions, setTalukaOptions] = useState<string[]>([]);
+  const [villageOptions, setVillageOptions] = useState<string[]>([]);
   const [societies, setSocieties] = useState<string[]>([]);
   const [crops, setCrops] = useState<string[]>([]);
   const [schemes, setSchemes] = useState<string[]>([]);
   const [machines, setMachines] = useState<string[]>([]);
   const [opts, setOpts] = useState<Record<string, string[]>>({});
   const { lang } = useLang();
-  const [villageQuery, setVillageQuery] = useState("");
+  const [otpStatus, setOtpStatus] = useState<"idle" | "sent" | "verifying">("idle");
+  const [otpCode, setOtpCode] = useState("");
+  // Once a village is picked it locks — accidental edits/deletes are the exact
+  // failure mode the client called out. "Change Village" is still possible but
+  // requires an explicit confirm, so it's a deliberate action, not a slip.
+  const [villageUnlocked, setVillageUnlocked] = useState(false);
+  const villageLocked = !!form.village && !villageUnlocked;
 
   useEffect(() => {
-    api.villagesFlat().then(setVillagesFlat);
+    api.districts().then(setDistrictOptions);
     api.societies().then(setSocieties);
     api.crops().then(setCrops);
     api.schemes().then(setSchemes);
     api.machines().then(setMachines);
     Promise.all(
       ["society_benefits", "cultivation_challenges", "storage_source", "logistics_provider",
-        "credit_source", "irrigation_source", "input_source", "input_challenges", "marketing_channel"]
+        "credit_source", "irrigation_source", "input_source", "input_challenges", "marketing_channel",
+        "non_farm_income_source", "intercrop_crops", "loan_rejection_reason"]
         .map((code) => api.options(code).then((v: string[]) => [code, v]))
     ).then((entries) => setOpts(Object.fromEntries(entries)));
   }, []);
+
+  // District > Taluka > Village cascade, per the client's explicit hierarchy
+  // requirement — each level re-fetches only once its parent is chosen.
+  useEffect(() => {
+    if (form.district) api.talukas(form.district).then(setTalukaOptions);
+    else setTalukaOptions([]);
+  }, [form.district]);
+
+  useEffect(() => {
+    if (form.district && form.taluka) api.villages(form.district, form.taluka).then(setVillageOptions);
+    else setVillageOptions([]);
+  }, [form.district, form.taluka]);
+
+  // FPC dropdown is scoped to the selected Taluka (plus every state-level
+  // society) rather than showing every FPC in Karnataka — re-fetched whenever
+  // the taluka changes (i.e. whenever the village selection changes).
+  useEffect(() => {
+    if (form.taluka) api.societies(form.taluka).then(setSocieties);
+  }, [form.taluka]);
 
   useEffect(() => {
     if (editId) {
@@ -256,6 +378,8 @@ export default function DataEntryWizard() {
           mech_rented: s.mech_rented ? s.mech_rented.split(",") : [],
           mech_rental_rate: s.mech_rental_rate_inr_hr ? JSON.parse(s.mech_rental_rate_inr_hr) : {},
           irrigation_source: s.irrigation_source ? s.irrigation_source.split(",") : [],
+          intercrop_crops: s.intercrop_crops ? s.intercrop_crops.split(",") : [],
+          non_farm_income_source: s.non_farm_income_source ? s.non_farm_income_source.split(",") : [],
         });
         if (s.plot_boundary) {
           try {
@@ -275,21 +399,40 @@ export default function DataEntryWizard() {
     });
 
   const set = (k: string, v: any) => {
-    setForm((f: any) => ({ ...f, [k]: v }));
+    setForm((f: any) => ({ ...f, [k]: v, ...(k === "mobile_no" ? { mobile_verified: false } : {}) }));
     clearError(k);
+    if (k === "mobile_no") setOtpStatus("idle");
   };
   const toggleMulti = (k: string, v: string) => {
     setForm((f: any) => ({ ...f, [k]: f[k].includes(v) ? f[k].filter((x: string) => x !== v) : [...f[k], v] }));
     clearError(k);
   };
 
+  // No SMS gateway is wired up yet (needs a provider — Twilio/MSG91/etc. — and
+  // credentials from the client), so this simulates the OTP round trip client-side
+  // rather than actually texting the farmer. Swap sendOtp/verifyOtp for real API
+  // calls once a provider is chosen.
+  const sendOtp = () => {
+    if (!/^\d{10}$/.test(String(form.mobile_no).trim())) return;
+    setOtpStatus("sent");
+    setOtpCode("");
+  };
+  const verifyOtp = () => {
+    setOtpStatus("verifying");
+    setTimeout(() => {
+      set("mobile_verified", true);
+      setOtpStatus("idle");
+    }, 400);
+  };
+
   const computedIncome = useMemo(() => {
-    const y = parseFloat(form.yield_raw_qtl) || 0;
+    const isProcessed = form.sale_type === "Sold processed areca";
+    const y = parseFloat(isProcessed ? form.yield_processed_qtl : form.yield_raw_qtl) || 0;
     const r = parseFloat(form.rate_inr_per_kg) || 0;
     const c = parseFloat(form.cultivation_cost_inr) || 0;
-    const p = form.sale_type === "Sold processed areca" ? (parseFloat(form.processing_cost_inr) || 0) : 0;
+    const p = isProcessed ? (parseFloat(form.processing_cost_inr) || 0) : 0;
     return Math.round(y * r * 100 - c - p);
-  }, [form.yield_raw_qtl, form.rate_inr_per_kg, form.cultivation_cost_inr, form.processing_cost_inr, form.sale_type]);
+  }, [form.yield_raw_qtl, form.yield_processed_qtl, form.rate_inr_per_kg, form.cultivation_cost_inr, form.processing_cost_inr, form.sale_type]);
 
   const doLookup = async () => {
     setLookupMsg(null);
@@ -309,6 +452,8 @@ export default function DataEntryWizard() {
 
   const [geoStatus, setGeoStatus] = useState<"idle" | "locating" | "done" | "error">("idle");
   const [geoError, setGeoError] = useState<string | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
 
   const [plotMethod, setPlotMethod] = useState<CaptureMethod>("gps");
   const [plotPoints, setPlotPoints] = useState<PlotBoundary>([]);
@@ -365,11 +510,30 @@ export default function DataEntryWizard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
-  const attachPhoto = () => {
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    set("field_photo", `/photos/${form.farmer_id || "capture"}_${stamp}.jpg`);
-    // Photo is stamped with whatever GPS fix we already have; if none yet, try again now.
-    if (!form.geo_lat) captureGeo();
+  const attachPhoto = async () => {
+    setPhotoError(null);
+    setPhotoBusy(true);
+    try {
+      const photo = await CapacitorCamera.getPhoto({
+        quality: 70,
+        allowEditing: false,
+        resultType: CameraResultType.DataUrl,
+        source: CameraSource.Prompt,
+        promptLabelHeader: "Field Photo",
+        width: 1280,
+      });
+      set("field_photo", photo.dataUrl || "");
+      // Geo-tag the photo with whatever GPS fix we already have; if none yet, fetch it now.
+      if (!form.geo_lat) captureGeo();
+    } catch (e: any) {
+      // A cancelled camera/picker isn't an error worth surfacing.
+      const msg = String(e?.message || "");
+      if (!/cancel/i.test(msg)) {
+        setPhotoError(msg || "Could not access the camera. Check camera/photo permissions and try again.");
+      }
+    } finally {
+      setPhotoBusy(false);
+    }
   };
 
   const jumpToFirstError = (errs: Record<string, string>) => {
@@ -402,13 +566,20 @@ export default function DataEntryWizard() {
       land_leased_acres: parseFloat(form.land_leased_acres) || 0,
       areca_area_acres: parseFloat(form.areca_area_acres) || 0,
       areca_plant_count: parseInt(form.areca_plant_count) || 0,
+      intercrop_crops: (form.intercrop_crops || []).join(","),
+      intercrop_area_acres: form.intercrop_area_acres ? parseFloat(form.intercrop_area_acres) : null,
       cultivation_cost_inr: parseFloat(form.cultivation_cost_inr) || 0,
-      yield_raw_qtl: parseFloat(form.yield_raw_qtl) || 0,
+      yield_raw_qtl: form.sale_type === "Sold raw areca" ? (parseFloat(form.yield_raw_qtl) || 0) : null,
+      yield_processed_qtl: form.sale_type === "Sold processed areca" ? (parseFloat(form.yield_processed_qtl) || 0) : null,
       processing_cost_inr: form.processing_cost_inr ? parseFloat(form.processing_cost_inr) : null,
       rate_inr_per_kg: parseFloat(form.rate_inr_per_kg) || 0,
       storage_duration_months: form.storage_duration_months ? parseFloat(form.storage_duration_months) : null,
+      storage_loan_amount_inr: form.storage_loan_amount_inr ? parseFloat(form.storage_loan_amount_inr) : null,
+      storage_loan_interest_pct: form.storage_loan_interest_pct ? parseFloat(form.storage_loan_interest_pct) : null,
+      storage_loan_repayment_months: form.storage_loan_repayment_months ? parseInt(form.storage_loan_repayment_months) : null,
       logistics_cost_inr_per_qtl: form.logistics_cost_inr_per_qtl ? parseFloat(form.logistics_cost_inr_per_qtl) : null,
       cultivation_challenges: form.cultivation_challenges.join(","),
+      machinery_waiting_days: form.machinery_waiting_days ? parseInt(form.machinery_waiting_days) : null,
       crop2_area_acres: form.crop2_area_acres ? parseFloat(form.crop2_area_acres) : null,
       crop2_yield: form.crop2_yield ? parseFloat(form.crop2_yield) : null,
       crop2_rate: form.crop2_rate ? parseFloat(form.crop2_rate) : null,
@@ -418,11 +589,20 @@ export default function DataEntryWizard() {
       mech_owned: form.mech_owned.join(","),
       mech_rented: form.mech_rented.join(","),
       mech_rental_rate_inr_hr: JSON.stringify(form.mech_rental_rate || {}),
+      mech_loan_amount_inr_lakh: form.mech_loan_amount_inr_lakh ? parseFloat(form.mech_loan_amount_inr_lakh) : null,
+      mech_loan_interest_pct: form.mech_loan_interest_pct ? parseFloat(form.mech_loan_interest_pct) : null,
+      total_household_income_inr_lakh: form.total_household_income_inr_lakh ? parseFloat(form.total_household_income_inr_lakh) : null,
+      non_farm_income_source: (form.non_farm_income_source || []).join(","),
+      overdraft_limit_inr_lakh: form.overdraft_limit_inr_lakh ? parseFloat(form.overdraft_limit_inr_lakh) : null,
       credit_amount_inr: form.credit_amount_inr ? parseFloat(form.credit_amount_inr) : null,
       credit_interest_rate_pct: form.credit_interest_rate_pct ? parseFloat(form.credit_interest_rate_pct) : null,
       credit_repayment_months: form.credit_repayment_months ? parseInt(form.credit_repayment_months) : null,
+      credit_outstanding_inr_lakh: form.credit_outstanding_inr_lakh ? parseFloat(form.credit_outstanding_inr_lakh) : null,
+      credit_gap_inr_lakh: form.credit_gap_inr_lakh ? parseFloat(form.credit_gap_inr_lakh) : null,
+      kcc_limit_inr_lakh: form.kcc_limit_inr_lakh ? parseFloat(form.kcc_limit_inr_lakh) : null,
       irrigation_source: form.irrigation_source.join(","),
       input_distance_km: form.input_distance_km ? parseFloat(form.input_distance_km) : null,
+      input_purchase_delay_days: form.input_purchase_delay_days ? parseInt(form.input_purchase_delay_days) : null,
       geo_lat: form.geo_lat ? parseFloat(form.geo_lat) : null,
       geo_long: form.geo_long ? parseFloat(form.geo_long) : null,
       plot_boundary: plotValidation.valid ? JSON.stringify(plotPoints) : null,
@@ -466,7 +646,15 @@ export default function DataEntryWizard() {
     setSubmitError(null);
     setStep((s) => Math.min(s + 1, STEPS.length - 1));
   };
-  const back = () => setStep((s) => Math.max(s - 1, 0));
+  // On the first tab there's nowhere earlier in the wizard to go — leaving the
+  // button disabled and inert there read as broken, so it exits to the list instead.
+  const back = () => {
+    if (step === 0) {
+      navigate("/farmers");
+      return;
+    }
+    setStep((s) => Math.max(s - 1, 0));
+  };
 
   const CurrentIcon = STEPS[step].icon;
 
@@ -538,7 +726,24 @@ export default function DataEntryWizard() {
               </Field>
               <div className="grid md:grid-cols-2 gap-x-4">
                 <Field label="Farmer Name" required error={errors.farmer_name}><input className="gt-input" value={form.farmer_name} onChange={(e) => set("farmer_name", e.target.value)} /></Field>
-                <Field label="Mobile Number" required error={errors.mobile_no}><input className="gt-input" value={form.mobile_no} onChange={(e) => set("mobile_no", e.target.value)} /></Field>
+                <Field label="Mobile Number" required error={errors.mobile_no}>
+                  <div className="flex gap-2">
+                    <input className="gt-input" maxLength={10} value={form.mobile_no} onChange={(e) => set("mobile_no", e.target.value.replace(/\D/g, ""))} />
+                    {form.mobile_verified ? (
+                      <span className="shrink-0 flex items-center gap-1 text-xs text-[var(--gt-success)] font-medium px-2"><CheckCircle2 size={14} /> Verified</span>
+                    ) : otpStatus === "sent" ? (
+                      <>
+                        <input className="gt-input w-20 shrink-0" placeholder="OTP" value={otpCode} onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ""))} />
+                        <button type="button" className="gt-btn-secondary shrink-0 px-3" disabled={otpCode.length < 4} onClick={verifyOtp}>Verify</button>
+                      </>
+                    ) : (
+                      <button type="button" className="gt-btn-secondary shrink-0 px-3" disabled={!/^\d{10}$/.test(form.mobile_no)} onClick={sendOtp}>Send OTP</button>
+                    )}
+                  </div>
+                  {otpStatus === "sent" && !form.mobile_verified && (
+                    <div className="text-[11px] text-[var(--gt-text-muted)] mt-1">Enter any 4+ digit code to simulate verification — SMS delivery isn't wired up yet.</div>
+                  )}
+                </Field>
                 <Field label="Gender" required>
                   <select className="gt-input" value={form.gender} onChange={(e) => set("gender", e.target.value)}>
                     <option>Male</option><option>Female</option>
@@ -555,10 +760,18 @@ export default function DataEntryWizard() {
               {form.society_assoc === "Yes" && (
                 <div className="grid md:grid-cols-2 gap-x-4">
                   <Field label="Society / FPC Name" required error={errors.society_name}>
-                    <input className="gt-input" list="society-list" value={form.society_name} onChange={(e) => set("society_name", e.target.value)} />
-                    <datalist id="society-list">{societies.map((s) => <option key={s} value={s} />)}</datalist>
+                    <select className="gt-input" value={form.society_name} onChange={(e) => set("society_name", e.target.value)} disabled={!form.taluka}>
+                      <option value="">{form.taluka ? "Select" : "Select a village first"}</option>
+                      {societies.map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                    <div className="text-[11px] text-[var(--gt-text-muted)] mt-1">Showing FPCs mapped to {form.taluka || "the selected taluka"}, plus State-level societies.</div>
                   </Field>
-                  <Field label="Associated Since (Year)" required error={errors.society_since_year}><input type="number" className="gt-input" value={form.society_since_year} onChange={(e) => set("society_since_year", e.target.value)} /></Field>
+                  <Field label="Associated Since (Year)" required error={errors.society_since_year}>
+                    <select className="gt-input" value={form.society_since_year} onChange={(e) => set("society_since_year", e.target.value)}>
+                      <option value="">Select</option>
+                      {YEAR_OPTIONS.map((y) => <option key={y} value={y}>{y}</option>)}
+                    </select>
+                  </Field>
                   <Field label="Benefits Received till Date">
                     <MultiChip options={opts.society_benefits || []} value={form.society_benefits} onToggle={(v) => toggleMulti("society_benefits", v)} />
                   </Field>
@@ -567,61 +780,73 @@ export default function DataEntryWizard() {
             </SubSection>
 
             <SubSection icon={MapPin} title="Location Details">
-              <div className="text-sm text-[var(--gt-text-muted)] mb-4">Type or pick a village — taluka, district & state fill in automatically.</div>
-
-              <Field label={tr("quickSearch", lang)} required error={errors.village}>
-                <input
-                  className="gt-input"
-                  list="village-flat-list"
-                  placeholder={lang === "kn" ? "ಗ್ರಾಮದ ಹೆಸರು ಟೈಪ್ ಮಾಡಿ…" : "Start typing a village name…"}
-                  value={villageQuery || trVillage(form.village, lang)}
-                  onChange={(e) => {
-                    const typed = e.target.value;
-                    setVillageQuery(typed);
-                    const match = villagesFlat.find(
-                      (v) => v.village === typed || trVillage(v.village, lang) === typed
-                    );
-                    if (match) {
-                      set("village", match.village);
-                      set("taluka", match.taluka);
-                      set("district", match.district);
-                      setVillageQuery("");
-                    }
-                  }}
-                />
-                <datalist id="village-flat-list">
-                  {villagesFlat.map((v) => (
-                    <option key={v.village} value={lang === "kn" ? trVillage(v.village, lang) : v.village}>
-                      {lang === "kn"
-                        ? `${trTaluka(v.taluka, lang)}, ${trDistrict(v.district, lang)}`
-                        : `${v.taluka}, ${v.district}`}
-                    </option>
-                  ))}
-                </datalist>
-              </Field>
+              <div className="flex items-center justify-between mb-4">
+                <div className="text-sm text-[var(--gt-text-muted)]">
+                  {villageLocked
+                    ? "Village is locked once selected — use \"Change Village\" if it was picked in error."
+                    : "Select District, then Taluka, then Village — in that order."}
+                </div>
+                {villageLocked && (
+                  <button
+                    type="button"
+                    className="text-xs text-[var(--gt-purple)] underline shrink-0 ml-2"
+                    onClick={() => {
+                      if (window.confirm("Changing the village is not normally allowed once entered. Continue only if this was selected in error. Proceed?")) {
+                        setVillageUnlocked(true);
+                      }
+                    }}
+                  >
+                    Change Village
+                  </button>
+                )}
+              </div>
 
               <div className="grid md:grid-cols-3 gap-x-4">
-                <Field label={tr("village", lang)} required error={errors.village}>
+                <Field label={tr("district", lang)} required error={errors.district}>
                   <select
-                    className="gt-input"
-                    value={form.village}
+                    className="gt-input disabled:bg-[#F6F4F9] disabled:text-[var(--gt-text-muted)]"
+                    value={form.district}
+                    disabled={villageLocked}
                     onChange={(e) => {
-                      set("village", e.target.value);
-                      const match = villagesFlat.find((v) => v.village === e.target.value);
-                      if (match) { set("taluka", match.taluka); set("district", match.district); }
+                      const nextDistrict = e.target.value;
+                      setForm((f: any) => ({ ...f, district: nextDistrict, taluka: "", village: "" }));
+                      clearError("district");
+                      setVillageUnlocked(false);
                     }}
                   >
                     <option value="">{tr("select", lang)}</option>
-                    {villagesFlat.map((v) => (
-                      <option key={v.village} value={v.village}>{trVillage(v.village, lang)}</option>
-                    ))}
+                    {districtOptions.map((d) => <option key={d} value={d}>{trDistrict(d, lang)}</option>)}
                   </select>
                 </Field>
-                <Field label={`${tr("taluka", lang)} (auto-filled)`}>
-                  <input className="gt-input bg-[#F6F4F9]" readOnly value={trTaluka(form.taluka, lang) || "—"} />
+                <Field label={tr("taluka", lang)} required error={errors.taluka}>
+                  <select
+                    className="gt-input disabled:bg-[#F6F4F9] disabled:text-[var(--gt-text-muted)]"
+                    value={form.taluka}
+                    disabled={villageLocked || !form.district}
+                    onChange={(e) => {
+                      const nextTaluka = e.target.value;
+                      setForm((f: any) => ({ ...f, taluka: nextTaluka, village: "" }));
+                      clearError("taluka");
+                      setVillageUnlocked(false);
+                    }}
+                  >
+                    <option value="">{form.district ? tr("select", lang) : "Select district first"}</option>
+                    {talukaOptions.map((t) => <option key={t} value={t}>{trTaluka(t, lang)}</option>)}
+                  </select>
                 </Field>
-                <Field label={`${tr("district", lang)} (auto-filled)`}>
-                  <input className="gt-input bg-[#F6F4F9]" readOnly value={trDistrict(form.district, lang) || "—"} />
+                <Field label={tr("village", lang)} required error={errors.village}>
+                  <select
+                    className="gt-input disabled:bg-[#F6F4F9] disabled:text-[var(--gt-text-muted)]"
+                    value={form.village}
+                    disabled={villageLocked || !form.taluka}
+                    onChange={(e) => {
+                      set("village", e.target.value);
+                      setVillageUnlocked(false);
+                    }}
+                  >
+                    <option value="">{form.taluka ? tr("select", lang) : "Select taluka first"}</option>
+                    {villageOptions.map((v) => <option key={v} value={v}>{trVillage(v, lang)}</option>)}
+                  </select>
                 </Field>
                 <Field label={tr("state", lang)}>
                   <input className="gt-input bg-[#F6F4F9]" readOnly value={tr("karnataka", lang)} />
@@ -635,19 +860,58 @@ export default function DataEntryWizard() {
           <>
             <SubSection icon={LandPlot} title="Land Holding" first>
               <div className="grid md:grid-cols-2 gap-x-4">
-                <Field label="Total Own Land Holding (Acres)" required error={errors.land_own_acres}><input type="number" className="gt-input" value={form.land_own_acres} onChange={(e) => set("land_own_acres", e.target.value)} /></Field>
-                <Field label="Total Leased Land (Acres)"><input type="number" className="gt-input" value={form.land_leased_acres} onChange={(e) => set("land_leased_acres", e.target.value)} /></Field>
+                <Field label="Total Own Land Holding (Acres)" required error={errors.land_own_acres}><input type="number" step="0.01" className="gt-input" value={form.land_own_acres} onChange={(e) => set("land_own_acres", e.target.value)} /></Field>
+                <Field label="Total Leased Land (Acres)" error={errors.land_leased_acres}><input type="number" step="0.01" className="gt-input" value={form.land_leased_acres} onChange={(e) => set("land_leased_acres", e.target.value)} /></Field>
                 <Field label="Total Area under Areca Cultivation (Acres)" required error={errors.areca_area_acres}>
-                  <input type="number" className="gt-input" value={form.areca_area_acres} onChange={(e) => set("areca_area_acres", e.target.value)} />
+                  <input type="number" step="0.01" className="gt-input" value={form.areca_area_acres} onChange={(e) => set("areca_area_acres", e.target.value)} />
                 </Field>
-                <Field label="Total No. of Areca Plants" required error={errors.areca_plant_count}><input type="number" className="gt-input" value={form.areca_plant_count} onChange={(e) => set("areca_plant_count", e.target.value)} /></Field>
+                <Field label="Total No. of Areca Plants" required error={errors.areca_plant_count}><input type="number" step="1" className="gt-input" value={form.areca_plant_count} onChange={(e) => set("areca_plant_count", e.target.value)} /></Field>
+              </div>
+            </SubSection>
+
+            <SubSection icon={Sprout} title="Organic Farming">
+              <div className="grid md:grid-cols-2 gap-x-4">
+                <Field label="Do You Follow Organic Farming Practices?" required><YesNo value={form.organic_farming} onChange={(v) => set("organic_farming", v)} /></Field>
+                {form.organic_farming === "Yes" && (
+                  <Field label="Do You Hold a Certificate?" required error={errors.organic_certified}><YesNo value={form.organic_certified} onChange={(v) => set("organic_certified", v)} /></Field>
+                )}
+                {form.organic_farming === "Yes" && form.organic_certified === "No" && (
+                  <Field label="Have You Applied for Certification?" required error={errors.organic_cert_applied}><YesNo value={form.organic_cert_applied} onChange={(v) => set("organic_cert_applied", v)} /></Field>
+                )}
+                {form.organic_farming === "Yes" && form.organic_certified === "No" && form.organic_cert_applied === "No" && (
+                  <Field label="Aware of the Certification Process?" required error={errors.organic_cert_aware}><YesNo value={form.organic_cert_aware} onChange={(v) => set("organic_cert_aware", v)} /></Field>
+                )}
+              </div>
+            </SubSection>
+
+            <SubSection icon={Sprout} title="Intercropping">
+              <div className="grid md:grid-cols-2 gap-x-4">
+                <Field label="Are You Currently Intercropping Within Your Arecanut Plantation?" required><YesNo value={form.intercropping} onChange={(v) => set("intercropping", v)} /></Field>
+                {form.intercropping === "Yes" && (
+                  <>
+                    <Field label="Intercrops (select all that apply)" required error={errors.intercrop_crops}>
+                      <MultiChip options={opts.intercrop_crops || []} value={form.intercrop_crops} onToggle={(v) => toggleMulti("intercrop_crops", v)} />
+                    </Field>
+                    <Field label="Area Under Intercropping (Acres)" required error={errors.intercrop_area_acres}><input type="number" step="0.01" className="gt-input" value={form.intercrop_area_acres} onChange={(e) => set("intercrop_area_acres", e.target.value)} /></Field>
+                  </>
+                )}
               </div>
             </SubSection>
 
             <SubSection icon={Wheat} title="Cultivation Cost & Yield">
               <div className="grid md:grid-cols-2 gap-x-4">
-                <Field label="Total Annual Cost of Cultivation (INR)" required error={errors.cultivation_cost_inr}><input type="number" className="gt-input" value={form.cultivation_cost_inr} onChange={(e) => set("cultivation_cost_inr", e.target.value)} /></Field>
-                <Field label="Yield (Raw Areca) (Qtl)" required error={errors.yield_raw_qtl}><input type="number" className="gt-input" value={form.yield_raw_qtl} onChange={(e) => set("yield_raw_qtl", e.target.value)} /></Field>
+                <Field label="Total Annual Cost of Cultivation (INR)" required error={errors.cultivation_cost_inr}><input type="number" step="1" className="gt-input" value={form.cultivation_cost_inr} onChange={(e) => set("cultivation_cost_inr", e.target.value)} /></Field>
+                <Field label="Sale Type" required>
+                  <select className="gt-input" value={form.sale_type} onChange={(e) => set("sale_type", e.target.value)}>
+                    <option>Sold raw areca</option><option>Sold processed areca</option>
+                  </select>
+                </Field>
+                {form.sale_type === "Sold raw areca" && (
+                  <Field label="Yield (Raw Areca) (Quintal)" required error={errors.yield_raw_qtl}><input type="number" min="0" step="0.01" className="gt-input" value={form.yield_raw_qtl} onChange={(e) => set("yield_raw_qtl", e.target.value)} /></Field>
+                )}
+                {form.sale_type === "Sold processed areca" && (
+                  <Field label="Yield (Processed Areca Nuts) (Quintal)" required error={errors.yield_processed_qtl}><input type="number" min="0" step="0.01" className="gt-input" value={form.yield_processed_qtl} onChange={(e) => set("yield_processed_qtl", e.target.value)} /></Field>
+                )}
               </div>
             </SubSection>
           </>
@@ -657,11 +921,6 @@ export default function DataEntryWizard() {
           <>
             <SubSection icon={Coins} title="Sales, Marketing & Income" first>
               <div className="grid md:grid-cols-2 gap-x-4">
-                <Field label="Sale Type" required>
-                  <select className="gt-input" value={form.sale_type} onChange={(e) => set("sale_type", e.target.value)}>
-                    <option>Sold raw areca</option><option>Sold processed areca</option>
-                  </select>
-                </Field>
                 {form.sale_type === "Sold processed areca" && (
                   <Field label="Total Processing Cost (INR)" required error={errors.processing_cost_inr}><input type="number" className="gt-input" value={form.processing_cost_inr} onChange={(e) => set("processing_cost_inr", e.target.value)} /></Field>
                 )}
@@ -670,6 +929,11 @@ export default function DataEntryWizard() {
                     {(opts.marketing_channel || []).map((o) => <option key={o}>{o}</option>)}
                   </select>
                 </Field>
+                {(form.marketing_channel === "Cooperative Society" || form.marketing_channel === "APMC") && (
+                  <Field label={`Name of ${form.marketing_channel}`} required error={errors.marketing_channel_detail}>
+                    <input className="gt-input" value={form.marketing_channel_detail} onChange={(e) => set("marketing_channel_detail", e.target.value)} />
+                  </Field>
+                )}
                 <Field label="Rate Realised (INR/kg)" required error={errors.rate_inr_per_kg}><input type="number" className="gt-input" value={form.rate_inr_per_kg} onChange={(e) => set("rate_inr_per_kg", e.target.value)} /></Field>
                 <Field label="Month of Sale" required>
                   <select className="gt-input" value={form.sale_month} onChange={(e) => set("sale_month", e.target.value)}>
@@ -692,12 +956,33 @@ export default function DataEntryWizard() {
                     {(opts.storage_source || []).map((o) => <option key={o}>{o}</option>)}
                   </select>
                 </Field>
+                {form.storage_source && (
+                  <Field label="Availing a Commodity/Warehouse Loan or Pledge Facility on the Stored Commodity?" required>
+                    <YesNo value={form.storage_loan_availed} onChange={(v) => set("storage_loan_availed", v)} />
+                  </Field>
+                )}
+                {form.storage_source && form.storage_loan_availed === "Yes" && (
+                  <>
+                    <Field label="Loan/Pledge Amount (INR)" required error={errors.storage_loan_amount_inr}><input type="number" className="gt-input" value={form.storage_loan_amount_inr} onChange={(e) => set("storage_loan_amount_inr", e.target.value)} /></Field>
+                    <Field label="Interest Rate (%)" required error={errors.storage_loan_interest_pct}><input type="number" className="gt-input" value={form.storage_loan_interest_pct} onChange={(e) => set("storage_loan_interest_pct", e.target.value)} /></Field>
+                    <Field label="Repayment Period (Months)" required error={errors.storage_loan_repayment_months}><input type="number" className="gt-input" value={form.storage_loan_repayment_months} onChange={(e) => set("storage_loan_repayment_months", e.target.value)} /></Field>
+                    {form.storage_source.includes("Warehouse") && (
+                      <Field label="Is a Warehouse Receipt Available?"><YesNo value={form.storage_warehouse_receipt} onChange={(v) => set("storage_warehouse_receipt", v)} /></Field>
+                    )}
+                  </>
+                )}
                 <Field label="Logistics Provider">
                   <select className="gt-input" value={form.logistics_provider} onChange={(e) => set("logistics_provider", e.target.value)}>
                     <option value="">Select</option>
                     {(opts.logistics_provider || []).map((o) => <option key={o}>{o}</option>)}
+                    <option value="Any Other">Any Other</option>
                   </select>
                 </Field>
+                {form.logistics_provider === "Any Other" && (
+                  <Field label="Specify Logistics Provider" required error={errors.logistics_provider_other}>
+                    <input className="gt-input" value={form.logistics_provider_other} onChange={(e) => set("logistics_provider_other", e.target.value)} />
+                  </Field>
+                )}
                 {form.logistics_provider && (
                   <Field label="Provider-wise Cost (INR/Qtl)"><input type="number" className="gt-input" value={form.logistics_cost_inr_per_qtl} onChange={(e) => set("logistics_cost_inr_per_qtl", e.target.value)} /></Field>
                 )}
@@ -712,6 +997,11 @@ export default function DataEntryWizard() {
               <Field label="Challenges in Areca Cultivation">
                 <MultiChip options={opts.cultivation_challenges || []} value={form.cultivation_challenges} onToggle={(v) => toggleMulti("cultivation_challenges", v)} />
               </Field>
+              {form.cultivation_challenges?.includes("Availability of Farm Machinery") && (
+                <Field label="Average Waiting Period for Farm Machinery (Days)" required error={errors.machinery_waiting_days}>
+                  <input type="number" className="gt-input" value={form.machinery_waiting_days} onChange={(e) => set("machinery_waiting_days", e.target.value)} />
+                </Field>
+              )}
             </SubSection>
 
             <SubSection icon={Sprout} title="Other Crops (Diversification)">
@@ -724,8 +1014,8 @@ export default function DataEntryWizard() {
                         <input className="gt-input" list="crop-list" value={form[`crop${n}_name`]} onChange={(e) => set(`crop${n}_name`, e.target.value)} />
                       </Field>
                       <Field label="Area under Cultivation (Acres)" error={errors[`crop${n}_area_acres`]}><input type="number" className="gt-input" value={form[`crop${n}_area_acres`]} onChange={(e) => set(`crop${n}_area_acres`, e.target.value)} /></Field>
-                      <Field label="Yield" error={errors[`crop${n}_yield`]}><input type="number" className="gt-input" value={form[`crop${n}_yield`]} onChange={(e) => set(`crop${n}_yield`, e.target.value)} /></Field>
-                      <Field label="Rate (INR)" error={errors[`crop${n}_rate`]}><input type="number" className="gt-input" value={form[`crop${n}_rate`]} onChange={(e) => set(`crop${n}_rate`, e.target.value)} /></Field>
+                      <Field label="Total Yield (Quintal)" error={errors[`crop${n}_yield`]}><input type="number" className="gt-input" value={form[`crop${n}_yield`]} onChange={(e) => set(`crop${n}_yield`, e.target.value)} /></Field>
+                      <Field label="Rate (INR/Kg)" error={errors[`crop${n}_rate`]}><input type="number" className="gt-input" value={form[`crop${n}_rate`]} onChange={(e) => set(`crop${n}_rate`, e.target.value)} /></Field>
                     </div>
                   </div>
                 ))}
@@ -739,7 +1029,7 @@ export default function DataEntryWizard() {
           <>
             <SubSection icon={Wrench} title="Farm Mechanisation" first>
               <Field label="Farm Mechanisation - Own Machines"><MultiChip options={machines} value={form.mech_owned} onToggle={(v) => toggleMulti("mech_owned", v)} /></Field>
-              <Field label="Farm Mechanisation - Rented"><MultiChip options={machines.filter((m) => !form.mech_owned.includes(m))} value={form.mech_rented} onToggle={(v) => toggleMulti("mech_rented", v)} /></Field>
+              <Field label="Farm Mechanisation - Rented"><MultiChip options={machines} value={form.mech_rented} onToggle={(v) => toggleMulti("mech_rented", v)} /></Field>
               {form.mech_rented.length > 0 && (
                 <Field label="Hourly Rental Rate per Machine (INR)" error={errors.mech_rental_rate}>
                   <div className="flex flex-col gap-2">
@@ -757,6 +1047,15 @@ export default function DataEntryWizard() {
                   </div>
                 </Field>
               )}
+              {form.mech_owned.length > 0 && (
+                <Field label="If Owned, Are the Machines Financed?" required><YesNo value={form.mech_financed} onChange={(v) => set("mech_financed", v)} /></Field>
+              )}
+              {form.mech_owned.length > 0 && form.mech_financed === "Yes" && (
+                <div className="grid md:grid-cols-2 gap-x-4">
+                  <Field label="Loan Amount (INR Lakh)" required error={errors.mech_loan_amount_inr_lakh}><input type="number" className="gt-input" value={form.mech_loan_amount_inr_lakh} onChange={(e) => set("mech_loan_amount_inr_lakh", e.target.value)} /></Field>
+                  <Field label="Interest Rate (%)" required error={errors.mech_loan_interest_pct}><input type="number" className="gt-input" value={form.mech_loan_interest_pct} onChange={(e) => set("mech_loan_interest_pct", e.target.value)} /></Field>
+                </div>
+              )}
             </SubSection>
 
             <SubSection icon={Truck} title="Input Supply Chain">
@@ -766,13 +1065,23 @@ export default function DataEntryWizard() {
                     {(opts.input_source || []).map((o) => <option key={o}>{o}</option>)}
                   </select>
                 </Field>
-                <Field label="Distance of Input Source (Km)"><input type="number" className="gt-input" value={form.input_distance_km} onChange={(e) => set("input_distance_km", e.target.value)} /></Field>
+                <Field label="Distance of Input Source (Km)" error={errors.input_distance_km}><input type="number" min="0" className="gt-input" value={form.input_distance_km} onChange={(e) => set("input_distance_km", e.target.value)} /></Field>
                 <Field label="Challenges in Input Purchase">
                   <select className="gt-input" value={form.input_challenges} onChange={(e) => set("input_challenges", e.target.value)}>
                     <option value="">Select</option>
                     {(opts.input_challenges || []).map((o) => <option key={o}>{o}</option>)}
                   </select>
                 </Field>
+                {form.input_challenges === "Other" && (
+                  <Field label="Specify Challenge" required error={errors.input_challenges_other}>
+                    <input className="gt-input" value={form.input_challenges_other} onChange={(e) => set("input_challenges_other", e.target.value)} />
+                  </Field>
+                )}
+                {form.input_challenges === "Availability" && (
+                  <Field label="Average Delay in Receiving Inputs (Days)" required error={errors.input_purchase_delay_days}>
+                    <input type="number" min="0" className="gt-input" value={form.input_purchase_delay_days} onChange={(e) => set("input_purchase_delay_days", e.target.value)} />
+                  </Field>
+                )}
               </div>
             </SubSection>
 
@@ -789,7 +1098,19 @@ export default function DataEntryWizard() {
 
         {step === 5 && (
           <>
-            <SubSection icon={CreditCard} title="Credit & Finance" first>
+            <SubSection icon={Coins} title="Household Income" first>
+              <div className="grid md:grid-cols-2 gap-x-4">
+                <Field label="Total Household Income (INR Lakh)" error={errors.total_household_income_inr_lakh}><input type="number" className="gt-input" value={form.total_household_income_inr_lakh} onChange={(e) => set("total_household_income_inr_lakh", e.target.value)} /></Field>
+                <Field label="Non-Farm Income Source(s)"><MultiChip options={opts.non_farm_income_source || []} value={form.non_farm_income_source} onToggle={(v) => toggleMulti("non_farm_income_source", v)} /></Field>
+                <Field label="Do You Own a Bank Account?" required><YesNo value={form.bank_account} onChange={(v) => set("bank_account", v)} /></Field>
+                <Field label="Overdraft Facility Available?" required><YesNo value={form.overdraft_facility} onChange={(v) => set("overdraft_facility", v)} /></Field>
+                {form.overdraft_facility === "Yes" && (
+                  <Field label="Overdraft Limit (INR Lakh)" required error={errors.overdraft_limit_inr_lakh}><input type="number" className="gt-input" value={form.overdraft_limit_inr_lakh} onChange={(e) => set("overdraft_limit_inr_lakh", e.target.value)} /></Field>
+                )}
+              </div>
+            </SubSection>
+
+            <SubSection icon={CreditCard} title="Credit & Finance">
               <div className="grid md:grid-cols-2 gap-x-4">
                 <Field label="Credit Linkage" required><YesNo value={form.credit_linkage} onChange={(v) => set("credit_linkage", v)} /></Field>
                 {form.credit_linkage === "Yes" && (
@@ -803,7 +1124,31 @@ export default function DataEntryWizard() {
                     <Field label="Amount (INR)" required error={errors.credit_amount_inr}><input type="number" className="gt-input" value={form.credit_amount_inr} onChange={(e) => set("credit_amount_inr", e.target.value)} /></Field>
                     <Field label="Interest Rate (%)" required error={errors.credit_interest_rate_pct}><input type="number" className="gt-input" value={form.credit_interest_rate_pct} onChange={(e) => set("credit_interest_rate_pct", e.target.value)} /></Field>
                     <Field label="Repayment Period (Months)" required error={errors.credit_repayment_months}><input type="number" className="gt-input" value={form.credit_repayment_months} onChange={(e) => set("credit_repayment_months", e.target.value)} /></Field>
+                    <Field label="Current Outstanding Loan Amount (INR Lakh)"><input type="number" className="gt-input" value={form.credit_outstanding_inr_lakh} onChange={(e) => set("credit_outstanding_inr_lakh", e.target.value)} /></Field>
                   </>
+                )}
+                {form.credit_linkage === "No" && (
+                  <>
+                    <Field label="Outcome of Previous Loan Application" required error={errors.loan_application_outcome}>
+                      <select className="gt-input" value={form.loan_application_outcome} onChange={(e) => set("loan_application_outcome", e.target.value)}>
+                        <option value="">Select</option>
+                        <option>Approved</option><option>Partially Approved</option><option>Pending</option><option>Rejected</option>
+                      </select>
+                    </Field>
+                    {form.loan_application_outcome === "Rejected" && (
+                      <Field label="Reason for Rejection" required error={errors.loan_rejection_reason}>
+                        <select className="gt-input" value={form.loan_rejection_reason} onChange={(e) => set("loan_rejection_reason", e.target.value)}>
+                          <option value="">Select</option>
+                          {(opts.loan_rejection_reason || []).map((o) => <option key={o}>{o}</option>)}
+                        </select>
+                      </Field>
+                    )}
+                  </>
+                )}
+                <Field label="Gap Between Required Credit and Credit Availed (INR Lakh)"><input type="number" className="gt-input" value={form.credit_gap_inr_lakh} onChange={(e) => set("credit_gap_inr_lakh", e.target.value)} /></Field>
+                <Field label="Do You Have a KCC Account?" required><YesNo value={form.kcc_account} onChange={(v) => set("kcc_account", v)} /></Field>
+                {form.kcc_account === "Yes" && (
+                  <Field label="KCC Limit (INR Lakh)" required error={errors.kcc_limit_inr_lakh}><input type="number" className="gt-input" value={form.kcc_limit_inr_lakh} onChange={(e) => set("kcc_limit_inr_lakh", e.target.value)} /></Field>
                 )}
               </div>
             </SubSection>
@@ -841,6 +1186,7 @@ export default function DataEntryWizard() {
                 {form.crop_insurance === "Yes" && (
                   <Field label="Insurance Detail" required error={errors.crop_insurance_detail}><input className="gt-input" value={form.crop_insurance_detail} onChange={(e) => set("crop_insurance_detail", e.target.value)} /></Field>
                 )}
+                <Field label="Natural Calamity (Flood/Drought) in Region in Last 5 Years?" required><YesNo value={form.natural_calamity_5yr} onChange={(v) => set("natural_calamity_5yr", v)} /></Field>
               </div>
             </SubSection>
           </>
@@ -874,14 +1220,26 @@ export default function DataEntryWizard() {
                   <button type="button" className="text-xs text-[var(--gt-purple)] underline mt-1.5" onClick={captureGeo}>Refresh location</button>
                 )}
               </Field>
-              <Field label="Field Photo (auto geo-tagged)">
-                <button type="button" className="gt-btn-secondary flex items-center gap-1.5" onClick={attachPhoto}>
-                  <Camera size={16} /> Attach Photo
+              <Field label="Field Photo (geo-tagged)">
+                <button type="button" className="gt-btn-secondary flex items-center gap-1.5" onClick={attachPhoto} disabled={photoBusy}>
+                  <Camera size={16} /> {photoBusy ? "Opening camera…" : form.field_photo ? "Retake Photo" : "Attach Photo"}
                 </button>
+                {photoError && (
+                  <div className="flex items-center gap-2 bg-red-50 border border-[var(--gt-danger)]/30 text-[var(--gt-danger)] text-xs rounded-lg px-3 py-2 mt-2">
+                    <AlertCircle size={14} /> {photoError}
+                  </div>
+                )}
                 {form.field_photo && (
-                  <div className="text-xs mt-2 text-[var(--gt-text-muted)]">
-                    {form.field_photo}
-                    {form.geo_lat && <div className="text-[var(--gt-success)]">Tagged with Lat {form.geo_lat}, Long {form.geo_long}</div>}
+                  <div className="mt-2 flex items-start gap-3">
+                    <img src={form.field_photo} alt="Field capture" className="w-24 h-24 object-cover rounded-lg border border-[var(--gt-border)]" />
+                    <div className="text-xs text-[var(--gt-text-muted)]">
+                      {form.geo_lat ? (
+                        <div className="text-[var(--gt-success)] font-medium flex items-center gap-1"><MapPin size={12} /> Lat {form.geo_lat}, Long {form.geo_long}</div>
+                      ) : (
+                        <div className="text-[var(--gt-danger)]">No GPS fix yet — tap "Detect My Location" above so this photo is geo-tagged.</div>
+                      )}
+                      <button type="button" className="text-[var(--gt-purple)] underline mt-1" onClick={() => set("field_photo", "")}>Remove photo</button>
+                    </div>
                   </div>
                 )}
               </Field>
@@ -947,8 +1305,8 @@ export default function DataEntryWizard() {
       </div>
 
       <div className="flex justify-between gap-3">
-        <button className="gt-btn-secondary flex items-center gap-1" onClick={back} disabled={step === 0}>
-          <ChevronLeft size={16} /> Back
+        <button className="gt-btn-secondary flex items-center gap-1" onClick={back}>
+          <ChevronLeft size={16} /> {step === 0 ? "Cancel" : "Back"}
         </button>
         {step < STEPS.length - 1 ? (
           <button className="gt-btn-primary flex items-center gap-1" onClick={next}>

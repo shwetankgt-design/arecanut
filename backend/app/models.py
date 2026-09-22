@@ -96,6 +96,8 @@ class Society(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String, unique=True, nullable=False)
     district_id = Column(Integer, ForeignKey("m_district.id"), nullable=True)
+    taluka_id = Column(Integer, ForeignKey("m_taluka.id"), nullable=True)  # null => state-level society
+    is_state_level = Column(Boolean, nullable=False, default=False)
 
 
 class CropMaster(Base):
@@ -172,15 +174,24 @@ class FarmerSurvey(Base):
     land_leased_acres = Column(Float, nullable=True, default=0)
     areca_area_acres = Column(Float, nullable=False)
     areca_plant_count = Column(Integer, nullable=False)
+    organic_farming = Column(String, nullable=True)          # Yes/No
+    organic_certified = Column(String, nullable=True)        # Yes/No — if organic_farming == Yes
+    organic_cert_applied = Column(String, nullable=True)     # Yes/No — if organic_certified == No
+    organic_cert_aware = Column(String, nullable=True)       # Yes/No — if organic_cert_applied == No
+    intercropping = Column(String, nullable=True)            # Yes/No
+    intercrop_crops = Column(String, nullable=True)          # comma-separated
+    intercrop_area_acres = Column(Float, nullable=True)
 
     # Module 4: Cultivation Cost & Yield
     cultivation_cost_inr = Column(Float, nullable=False)
-    yield_raw_qtl = Column(Float, nullable=False)
+    yield_raw_qtl = Column(Float, nullable=True)  # required only when sale_type is "Sold raw areca"
+    yield_processed_qtl = Column(Float, nullable=True)
 
     # Module 5: Sales, Marketing & Income
     sale_type = Column(String, nullable=False)
     processing_cost_inr = Column(Float, nullable=True)
     marketing_channel = Column(String, nullable=False)
+    marketing_channel_detail = Column(String, nullable=True)  # name, if Cooperative Society / APMC
     rate_inr_per_kg = Column(Float, nullable=False)
     total_income_inr = Column(Float, nullable=False)        # auto-calculated
     sale_month = Column(String, nullable=False)
@@ -188,11 +199,18 @@ class FarmerSurvey(Base):
     # Module 6: Storage & Logistics
     storage_duration_months = Column(Float, nullable=True)
     storage_source = Column(String, nullable=True)
+    storage_loan_availed = Column(String, nullable=True)          # Yes/No
+    storage_loan_amount_inr = Column(Float, nullable=True)
+    storage_loan_interest_pct = Column(Float, nullable=True)
+    storage_loan_repayment_months = Column(Integer, nullable=True)
+    storage_warehouse_receipt = Column(String, nullable=True)     # Yes/No
     logistics_provider = Column(String, nullable=True)
+    logistics_provider_other = Column(String, nullable=True)
     logistics_cost_inr_per_qtl = Column(Float, nullable=True)
 
     # Module 7: Cultivation Challenges
     cultivation_challenges = Column(String, nullable=True)  # comma-separated
+    machinery_waiting_days = Column(Integer, nullable=True)  # if "Availability of Farm Machinery" selected
 
     # Module 8: Other Crops (Diversification)
     crop2_name = Column(String, nullable=True)
@@ -208,6 +226,16 @@ class FarmerSurvey(Base):
     mech_owned = Column(String, nullable=True)               # comma-separated
     mech_rented = Column(String, nullable=True)               # comma-separated
     mech_rental_rate_inr_hr = Column(String, nullable=True)   # JSON string {machine: rate}
+    mech_financed = Column(String, nullable=True)             # Yes/No — if any machine owned
+    mech_loan_amount_inr_lakh = Column(Float, nullable=True)
+    mech_loan_interest_pct = Column(Float, nullable=True)
+
+    # Household income & credit profile
+    total_household_income_inr_lakh = Column(Float, nullable=True)
+    non_farm_income_source = Column(String, nullable=True)   # comma-separated
+    bank_account = Column(String, nullable=True)              # Yes/No
+    overdraft_facility = Column(String, nullable=True)        # Yes/No
+    overdraft_limit_inr_lakh = Column(Float, nullable=True)
 
     # Module 10: Credit & Finance
     credit_linkage = Column(String, nullable=False)
@@ -215,6 +243,10 @@ class FarmerSurvey(Base):
     credit_amount_inr = Column(Float, nullable=True)
     credit_interest_rate_pct = Column(Float, nullable=True)
     credit_repayment_months = Column(Integer, nullable=True)
+    credit_outstanding_inr_lakh = Column(Float, nullable=True)
+    loan_application_outcome = Column(String, nullable=True)   # if credit_linkage == No
+    loan_rejection_reason = Column(String, nullable=True)      # if loan_application_outcome == Rejected
+    credit_gap_inr_lakh = Column(Float, nullable=True)
 
     # Module 11: Government Schemes
     scheme_availed = Column(String, nullable=False)
@@ -229,21 +261,31 @@ class FarmerSurvey(Base):
     soil_test_done = Column(String, nullable=False)
     crop_insurance = Column(String, nullable=False)
     crop_insurance_detail = Column(String, nullable=True)
+    natural_calamity_5yr = Column(String, nullable=True)     # Yes/No — flood/drought in region, last 5 years
 
     # Module 14: Input Supply Chain
     input_source = Column(String, nullable=False)
     input_distance_km = Column(Float, nullable=True)
     input_challenges = Column(String, nullable=True)
+    input_challenges_other = Column(String, nullable=True)
+    input_purchase_delay_days = Column(Integer, nullable=True)  # if "Availability" challenge selected
 
     # Module 15: Technology Adoption
     tech_adoption = Column(String, nullable=False)
     tech_adoption_detail = Column(String, nullable=True)
 
+    # KCC
+    kcc_account = Column(String, nullable=True)               # Yes/No
+    kcc_limit_inr_lakh = Column(Float, nullable=True)
+
+    # Contact verification
+    mobile_verified = Column(Boolean, nullable=True, default=False)
+
     # Module 16: Metadata & Geo-tagging
     entry_timestamp = Column(DateTime, default=datetime.datetime.utcnow)
     geo_lat = Column(Float, nullable=True)
     geo_long = Column(Float, nullable=True)
-    field_photo = Column(String, nullable=True)
+    field_photo = Column(Text, nullable=True)  # base64 data URL of the compressed field photo
     enumerator_name = Column(String, nullable=True)
     created_by_user_id = Column(Integer, ForeignKey("auth_user.id"), nullable=True)
     client_uuid = Column(String, unique=True, nullable=True, index=True)  # dedupes offline-queued submissions

@@ -101,7 +101,7 @@ export const api = {
   villages: (district: string, taluka: string) =>
     req(`/masters/villages?district=${encodeURIComponent(district)}&taluka=${encodeURIComponent(taluka)}`),
   villagesFlat: (): Promise<{ village: string; taluka: string; district: string }[]> => req("/masters/villages-flat"),
-  societies: () => req("/masters/societies"),
+  societies: (taluka?: string) => req(`/masters/societies${taluka ? `?taluka=${encodeURIComponent(taluka)}` : ""}`),
   crops: () => req("/masters/crops"),
   schemes: () => req("/masters/schemes"),
   machines: () => req("/masters/machines"),

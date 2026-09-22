@@ -91,7 +91,7 @@ export default function SurveyView() {
       <div className="grid md:grid-cols-2 gap-4">
         <Section icon={UserSearch} title="Farmer Link">
           <Row label="Farmer Name" value={s.farmer_name} />
-          <Row label="Mobile Number" value={s.mobile_no} />
+          <Row label="Mobile Number" value={s.mobile_no + (s.mobile_verified ? " (Verified)" : "")} />
           <Row label="Gender" value={s.gender} />
           <Row label="Age" value={s.age} />
           <Row label="Father / Husband Name" value={s.guardian_name} />
@@ -120,17 +120,29 @@ export default function SurveyView() {
           <Row label="Leased Land (Acres)" value={s.land_leased_acres} />
           <Row label="Areca Area (Acres)" value={s.areca_area_acres} />
           <Row label="Plant Count" value={s.areca_plant_count} />
+          <Row label="Organic Farming" value={s.organic_farming} />
+          {s.organic_farming === "Yes" && <Row label="Certified" value={s.organic_certified} />}
+          {s.organic_farming === "Yes" && s.organic_certified === "No" && <Row label="Applied for Certification" value={s.organic_cert_applied} />}
+          <Row label="Intercropping" value={s.intercropping} />
+          {s.intercropping === "Yes" && (
+            <>
+              <Row label="Intercrops" value={s.intercrop_crops?.split(",").join(", ")} />
+              <Row label="Intercrop Area (Acres)" value={s.intercrop_area_acres} />
+            </>
+          )}
         </Section>
 
         <Section icon={Wheat} title="Cultivation Cost & Yield">
           <Row label="Annual Cost (INR)" value={s.cultivation_cost_inr?.toLocaleString("en-IN")} />
           <Row label="Raw Yield (Qtl)" value={s.yield_raw_qtl} />
+          {s.sale_type === "Sold processed areca" && <Row label="Processed Yield (Qtl)" value={s.yield_processed_qtl} />}
         </Section>
 
         <Section icon={Coins} title="Sales, Marketing & Income">
           <Row label="Sale Type" value={s.sale_type} />
           {s.sale_type === "Sold processed areca" && <Row label="Processing Cost (INR)" value={s.processing_cost_inr} />}
           <Row label="Marketing Channel" value={s.marketing_channel} />
+          {s.marketing_channel_detail && <Row label="Marketing Channel Name" value={s.marketing_channel_detail} />}
           <Row label="Rate (INR/kg)" value={s.rate_inr_per_kg} />
           <Row label="Month of Sale" value={s.sale_month} />
         </Section>
@@ -138,12 +150,21 @@ export default function SurveyView() {
         <Section icon={Warehouse} title="Storage & Logistics">
           <Row label="Storage Duration (Months)" value={s.storage_duration_months} />
           <Row label="Storage Source" value={s.storage_source} />
-          <Row label="Logistics Provider" value={s.logistics_provider} />
+          {s.storage_loan_availed === "Yes" && (
+            <>
+              <Row label="Loan/Pledge Amount (INR)" value={s.storage_loan_amount_inr} />
+              <Row label="Interest Rate (%)" value={s.storage_loan_interest_pct} />
+              <Row label="Repayment (Months)" value={s.storage_loan_repayment_months} />
+              <Row label="Warehouse Receipt Available" value={s.storage_warehouse_receipt} />
+            </>
+          )}
+          <Row label="Logistics Provider" value={s.logistics_provider === "Any Other" ? s.logistics_provider_other : s.logistics_provider} />
           <Row label="Logistics Cost (INR/Qtl)" value={s.logistics_cost_inr_per_qtl} />
         </Section>
 
         <Section icon={TriangleAlert} title="Cultivation Challenges">
           <Row label="Challenges" value={s.cultivation_challenges?.split(",").join(", ")} />
+          {s.machinery_waiting_days != null && <Row label="Machinery Waiting Period (Days)" value={s.machinery_waiting_days} />}
         </Section>
 
         <Section icon={Sprout} title="Other Crops (Diversification)">
@@ -151,16 +172,16 @@ export default function SurveyView() {
           {s.crop2_name && (
             <>
               <Row label="Crop 2 Area (Acres)" value={s.crop2_area_acres} />
-              <Row label="Crop 2 Yield" value={s.crop2_yield} />
-              <Row label="Crop 2 Rate" value={s.crop2_rate} />
+              <Row label="Crop 2 Total Yield (Quintal)" value={s.crop2_yield} />
+              <Row label="Crop 2 Rate (INR/Kg)" value={s.crop2_rate} />
             </>
           )}
           <Row label="Crop 3" value={s.crop3_name} />
           {s.crop3_name && (
             <>
               <Row label="Crop 3 Area (Acres)" value={s.crop3_area_acres} />
-              <Row label="Crop 3 Yield" value={s.crop3_yield} />
-              <Row label="Crop 3 Rate" value={s.crop3_rate} />
+              <Row label="Crop 3 Total Yield (Quintal)" value={s.crop3_yield} />
+              <Row label="Crop 3 Rate (INR/Kg)" value={s.crop3_rate} />
             </>
           )}
         </Section>
@@ -168,17 +189,33 @@ export default function SurveyView() {
         <Section icon={Wrench} title="Farm Mechanisation">
           <Row label="Owned Machines" value={s.mech_owned?.split(",").join(", ")} />
           <Row label="Rented Machines" value={s.mech_rented?.split(",").join(", ")} />
+          {s.mech_owned && <Row label="Machines Financed" value={s.mech_financed} />}
+          {s.mech_financed === "Yes" && (
+            <>
+              <Row label="Loan Amount (INR Lakh)" value={s.mech_loan_amount_inr_lakh} />
+              <Row label="Interest Rate (%)" value={s.mech_loan_interest_pct} />
+            </>
+          )}
         </Section>
 
         <Section icon={Truck} title="Input Supply Chain">
           <Row label="Source" value={s.input_source} />
           <Row label="Distance (Km)" value={s.input_distance_km} />
           <Row label="Challenges" value={s.input_challenges} />
+          {s.input_purchase_delay_days != null && <Row label="Average Delay (Days)" value={s.input_purchase_delay_days} />}
         </Section>
 
         <Section icon={Smartphone} title="Technology Adoption">
           <Row label="Adopted" value={s.tech_adoption} />
           {s.tech_adoption === "Yes" && <Row label="Details" value={s.tech_adoption_detail} />}
+        </Section>
+
+        <Section icon={Coins} title="Household Income">
+          <Row label="Total Household Income (INR Lakh)" value={s.total_household_income_inr_lakh} />
+          <Row label="Non-Farm Income Source(s)" value={s.non_farm_income_source?.split(",").join(", ")} />
+          <Row label="Bank Account" value={s.bank_account} />
+          <Row label="Overdraft Facility" value={s.overdraft_facility} />
+          {s.overdraft_facility === "Yes" && <Row label="Overdraft Limit (INR Lakh)" value={s.overdraft_limit_inr_lakh} />}
         </Section>
 
         <Section icon={CreditCard} title="Credit & Finance">
@@ -189,8 +226,18 @@ export default function SurveyView() {
               <Row label="Amount (INR)" value={s.credit_amount_inr} />
               <Row label="Interest Rate (%)" value={s.credit_interest_rate_pct} />
               <Row label="Repayment (Months)" value={s.credit_repayment_months} />
+              <Row label="Outstanding Loan (INR Lakh)" value={s.credit_outstanding_inr_lakh} />
             </>
           )}
+          {s.credit_linkage === "No" && (
+            <>
+              <Row label="Previous Loan Application Outcome" value={s.loan_application_outcome} />
+              {s.loan_application_outcome === "Rejected" && <Row label="Rejection Reason" value={s.loan_rejection_reason} />}
+            </>
+          )}
+          <Row label="Credit Gap (INR Lakh)" value={s.credit_gap_inr_lakh} />
+          <Row label="KCC Account" value={s.kcc_account} />
+          {s.kcc_account === "Yes" && <Row label="KCC Limit (INR Lakh)" value={s.kcc_limit_inr_lakh} />}
         </Section>
 
         <Section icon={Landmark} title="Government Schemes">
@@ -212,11 +259,19 @@ export default function SurveyView() {
           <Row label="Soil Test Done" value={s.soil_test_done} />
           <Row label="Crop Insurance" value={s.crop_insurance} />
           {s.crop_insurance === "Yes" && <Row label="Insurance Detail" value={s.crop_insurance_detail} />}
+          <Row label="Natural Calamity in Last 5 Years" value={s.natural_calamity_5yr} />
         </Section>
 
         <Section icon={ScanLine} title="Geo-tag & Metadata">
           <Row label="Geo Location" value={s.geo_lat ? `${s.geo_lat}, ${s.geo_long}` : null} />
-          <Row label="Field Photo" value={s.field_photo} />
+          {s.field_photo?.startsWith("data:") ? (
+            <div className="flex justify-between items-center gap-4 py-1.5 border-b border-[var(--gt-border)] text-sm">
+              <span className="text-[var(--gt-text-muted)]">Field Photo</span>
+              <img src={s.field_photo} alt="Field capture" className="w-20 h-20 object-cover rounded-lg border border-[var(--gt-border)]" />
+            </div>
+          ) : (
+            <Row label="Field Photo" value={s.field_photo} />
+          )}
           <Row label="Entry Timestamp" value={s.entry_timestamp ? new Date(s.entry_timestamp).toLocaleString() : null} />
         </Section>
       </div>

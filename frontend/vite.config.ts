@@ -3,7 +3,17 @@ import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import { defineConfig } from 'vite'
 
+// Baked in at build time so the login screen can show "last updated" — this is
+// the moment `npm run build` ran, independent of deployment method (works the
+// same whether deployed via git-triggered build or a direct `vercel --prod`
+// CLI upload, unlike Vercel's own VERCEL_GIT_COMMIT_* vars which are only set
+// for git-triggered builds).
+const BUILD_TIME = new Date().toISOString();
+
 export default defineConfig({
+  define: {
+    __BUILD_TIME__: JSON.stringify(BUILD_TIME),
+  },
   plugins: [
     react(),
     tailwindcss(),

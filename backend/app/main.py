@@ -1,3 +1,4 @@
+import re
 from collections import Counter
 from typing import Optional
 from fastapi import FastAPI, Depends, HTTPException, Query, Request
@@ -366,6 +367,29 @@ def compute_income(payload: SurveyIn) -> float:
     return round(total, 0)
 
 
+FARMER_ID_RE = re.compile(r"NCCF/KA/(\d+)")
+
+
+def generate_farmer_id(db: Session) -> str:
+    """
+    Auto-assigns the next sequential "NCCF/KA/####" id once a brand-new
+    farmer's survey has fully validated — the enumerator never types this in.
+    Scans both FarmerMaster (the simulated Registration Portal) and
+    FarmerSurvey so a freshly generated id can never collide with a
+    previously-looked-up real farmer's id either.
+    """
+    max_n = 0
+    for (fid,) in db.query(m.FarmerMaster.farmer_id).all():
+        match = FARMER_ID_RE.search(fid or "")
+        if match:
+            max_n = max(max_n, int(match.group(1)))
+    for (fid,) in db.query(m.FarmerSurvey.farmer_id).all():
+        match = FARMER_ID_RE.search(fid or "")
+        if match:
+            max_n = max(max_n, int(match.group(1)))
+    return f"NCCF/KA/{max_n + 1:04d}"
+
+
 @app.post("/api/surveys", response_model=SurveyOut)
 def create_survey(
     request: Request,
@@ -384,6 +408,8 @@ def create_survey(
     data["total_income_inr"] = compute_income(payload)
     data["entry_timestamp"] = datetime.datetime.utcnow()
     data["created_by_user_id"] = user.id
+    if not data.get("farmer_id"):
+        data["farmer_id"] = generate_farmer_id(db)
     if data.get("plot_boundary"):
         data["plot_boundary_captured_at"] = datetime.datetime.utcnow()
     survey = m.FarmerSurvey(**data)
@@ -407,6 +433,8 @@ def update_survey(
         raise HTTPException(status_code=404, detail="Survey not found")
     data = payload.dict()
     data["total_income_inr"] = compute_income(payload)
+    if not data.get("farmer_id"):
+        data["farmer_id"] = survey.farmer_id  # never overwrite an assigned id with blank
     if data.get("plot_boundary") and data.get("plot_boundary") != survey.plot_boundary:
         data["plot_boundary_captured_at"] = datetime.datetime.utcnow()
     for k, v in data.items():

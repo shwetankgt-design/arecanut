@@ -65,12 +65,13 @@ Both commands must be run from the **repo root** (`D:\CLAUD\arecanut-app`), not 
 - `total_household_income_bracket` (string enum: `<10000` / `10000-1L` / `1L-10L` / `>10L`) supersedes `total_household_income_inr_lakh` (kept in the schema/DB but no longer written by the wizard) — the client asked for a bracket dropdown instead of free numeric entry (OBS-048).
 - `sale_type` now has a third valid value, `"Sold both raw and processed areca"`, alongside the original two — both `yield_raw_qtl` and `yield_processed_qtl` are populated when this is selected, and both `compute_income()` (backend) and `computedIncome` (frontend) sum both components (OBS-050).
 - Monetary field bounds tightened in the v4 round: absolute-INR amount fields capped at ₹10 crore (100,000,000), INR-Lakh fields capped at 1000 (=₹10 crore), all "Interest Rate (%)" fields capped at 20 and relabeled "per annum". **Before tightening any numeric `Field(le=...)` bound in the future, check it against live production data first** (`SurveyOut.model_validate()` against all current records) — a `Field` bound is inherited by `SurveyOut` just like a `model_validator` is, so tightening it can break `GET` responses for existing out-of-range rows exactly the same way as the validator-inheritance trap in section 1.
+- `farmer_id` is now **Optional** at the API layer (`SurveyIn.farmer_id`) — no longer typed by the enumerator. `create_survey` auto-assigns the next sequential `NCCF/KA/####` id via `generate_farmer_id()` (scans both `FarmerMaster` and `FarmerSurvey` for the current max, so it can never collide with a real looked-up farmer's id either) **only after the full payload has already validated** — i.e. only once every other field is correct, per the client's "generate once all details are captured" requirement. `update_survey` preserves the existing `survey.farmer_id` if the payload's is blank (never overwrites an assigned id). The `FarmerSurvey.farmer_id` DB column itself is still `nullable=False` — the auto-generation guarantees it's always set before insert, so the DB constraint is never actually challenged.
 
 ## 3. Current Status (update this section every session)
 
-**Last updated**: 2026-09-27, end of v4 fix round (client retest file `Arecanut_ValueChain_DigitalPlatform_220926_TV2.xlsx`, 51 observations).
+**Last updated**: 2026-09-27, evening — farmer-ID auto-generation, optional FPC/FPO name, mandatory-field dependency hints, login "last updated" timestamp.
 
-**Latest APK delivered**: v4.0 (versionCode 4) — built from the production web bundle with all v4 fixes below, signed, verified (`apksigner verify`), delivered to the user, and the version bump committed/pushed.
+**Latest APK delivered**: v4.0 (versionCode 4) — does **not** yet include this evening's farmer-ID/hints/login-timestamp changes (those landed after the v4 APK build). Backend + frontend web are live in production with them; **build v5 next if the user wants these in the Android app.**
 
 **Backend and frontend are both deployed to production with all v4 fixes** (see Session Log below for the full list and verification notes). All 104 production survey records were re-validated against the new schema before and after deploy — zero regressions.
 
@@ -89,6 +90,15 @@ These were explicitly deferred by the client in the v4 retest file — do not bu
 - **OBS-046/048**: Client noted "FS team may provide inputs on upper limits" / "Social & FS Team may provide inputs" for exact numeric caps — implemented with the specific numbers the client DID give in the "Expected Outcome" column (20% interest cap, ₹10 crore absolute cap, household income brackets), but these are provisional pending the named teams' sign-off.
 
 ## 6. Session Log
+
+### Session — 2026-09-27 evening (farmer-ID auto-gen, optional FPC name, dependency hints, login timestamp — COMPLETE, deployed)
+Ad-hoc follow-up requests (not from a retest file):
+- **Farmer ID auto-generation**: removed the manual "Farmer Unique ID" text entry; it's now read-only, shows "Will be assigned on submit" until the record exists, and the backend (`generate_farmer_id()` in `main.py`) assigns the next sequential `NCCF/KA/####` id only after the whole payload has validated. Verified via direct API calls against both local dev and production: a payload with no `farmer_id` gets one assigned (`NCCF/KA/0101`), a payload with an explicit `farmer_id` (the Fetch/lookup case for an existing farmer) keeps it unchanged. Test records created for verification were deleted afterward.
+- **Name of FPC/FPO now optional**: `marketing_channel === "FPC/FPO"` no longer requires `marketing_channel_detail` (Cooperative Society / APMC / Any Other still do). Added an "Optional — fill in if known" hint in its place.
+- **Dependency hints on conditionally-required fields**: added a `hint` prop to the wizard's `Field` component (renders muted text under the label, hidden once an error is showing so it doesn't compete with the error message) and applied it to ~38 fields whose "required" status depends on an earlier answer — e.g. "Required because Credit Linkage = Yes", "Required because 'Any Other' is selected". Intent: a field that's sometimes required and sometimes not should always say why, rather than just appearing/disappearing.
+- **Login screen "last updated"**: `vite.config.ts` now injects `__BUILD_TIME__` (an ISO timestamp of when `npm run build` ran) via Vite's `define`, declared in `vite-env.d.ts`, displayed on `Login.tsx`'s footer as "System last updated: <date>". Chosen over Vercel's `VERCEL_GIT_COMMIT_*` env vars because those are only populated for git-triggered builds, and this project has been deployed mostly via direct `vercel --prod` CLI uploads from the local tree — the build-time approach works identically either way.
+
+**Not yet in the Android APK** — v4.0 (versionCode 4) was built before these changes. Build v5 if requested.
 
 ### Session — 2026-09-27 (v4 retest fixes — COMPLETE, deployed to production)
 Source: client-provided `Arecanut_ValueChain_DigitalPlatform_220926_TV2.xlsx`, 51 OBS items with a new "Expected Outcome" column.

@@ -61,7 +61,11 @@ class FarmerLookup(BaseModel):
 
 
 class SurveyIn(BaseModel):
-    farmer_id: str = Field(..., min_length=1, max_length=STR_MAX)
+    # Optional at the API layer: a brand-new farmer's id is auto-generated
+    # server-side once the whole survey validates (see create_survey in
+    # main.py) rather than typed by the enumerator. An existing farmer looked
+    # up via Fetch (Aadhaar/mobile/ID) still carries their real farmer_id here.
+    farmer_id: Optional[str] = Field(None, max_length=STR_MAX)
     farmer_name: str = Field(..., min_length=1, max_length=STR_MAX)
     mobile_no: str
     gender: str = Field(..., max_length=20)

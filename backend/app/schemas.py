@@ -72,6 +72,7 @@ class SurveyIn(BaseModel):
     society_name: Optional[str] = Field(None, max_length=STR_MAX)
     society_since_year: Optional[int] = Field(None, ge=1900, le=2100)
     society_benefits: Optional[str] = Field(None, max_length=TEXT_MAX)
+    society_benefits_other: Optional[str] = Field(None, max_length=STR_MAX)
 
     village: str = Field(..., min_length=1, max_length=STR_MAX)
     taluka: str = Field(..., min_length=1, max_length=STR_MAX)
@@ -87,14 +88,15 @@ class SurveyIn(BaseModel):
     organic_cert_aware: Optional[str] = Field(None, max_length=10)
     intercropping: Optional[str] = Field(None, max_length=10)
     intercrop_crops: Optional[str] = Field(None, max_length=TEXT_MAX)
+    intercrop_crops_other: Optional[str] = Field(None, max_length=STR_MAX)
     intercrop_area_acres: Optional[float] = Field(None, ge=0, le=100000)
 
-    cultivation_cost_inr: float = Field(..., ge=0, le=1_000_000_000)
+    cultivation_cost_inr: float = Field(..., ge=0, le=100_000_000)  # capped at INR 10 crore
     yield_raw_qtl: Optional[float] = Field(None, ge=0, le=1_000_000)  # required only when sale_type is "Sold raw areca"
     yield_processed_qtl: Optional[float] = Field(None, ge=0, le=1_000_000)
 
     sale_type: str = Field(..., max_length=50)
-    processing_cost_inr: Optional[float] = Field(None, ge=0, le=1_000_000_000)
+    processing_cost_inr: Optional[float] = Field(None, ge=0, le=100_000_000)  # capped at INR 10 crore
     marketing_channel: str = Field(..., max_length=STR_MAX)
     marketing_channel_detail: Optional[str] = Field(None, max_length=STR_MAX)
     rate_inr_per_kg: float = Field(..., ge=0, le=1_000_000)
@@ -103,8 +105,8 @@ class SurveyIn(BaseModel):
     storage_duration_months: Optional[float] = Field(None, ge=0, le=1200)
     storage_source: Optional[str] = Field(None, max_length=STR_MAX)
     storage_loan_availed: Optional[str] = Field(None, max_length=10)
-    storage_loan_amount_inr: Optional[float] = Field(None, ge=0, le=1_000_000_000)
-    storage_loan_interest_pct: Optional[float] = Field(None, ge=0, le=100)
+    storage_loan_amount_inr: Optional[float] = Field(None, ge=0, le=100_000_000)  # capped at INR 10 crore
+    storage_loan_interest_pct: Optional[float] = Field(None, ge=0, le=20)  # capped at 20% per annum
     storage_loan_repayment_months: Optional[int] = Field(None, ge=0, le=1200)
     storage_warehouse_receipt: Optional[str] = Field(None, max_length=10)
     logistics_provider: Optional[str] = Field(None, max_length=STR_MAX)
@@ -112,6 +114,7 @@ class SurveyIn(BaseModel):
     logistics_cost_inr_per_qtl: Optional[float] = Field(None, ge=0, le=1_000_000)
 
     cultivation_challenges: Optional[str] = Field(None, max_length=TEXT_MAX)
+    cultivation_challenges_other: Optional[str] = Field(None, max_length=STR_MAX)
     machinery_waiting_days: Optional[int] = Field(None, ge=0, le=3650)
 
     crop2_name: Optional[str] = Field(None, max_length=STR_MAX)
@@ -124,27 +127,33 @@ class SurveyIn(BaseModel):
     crop3_rate: Optional[float] = Field(None, ge=0, le=1_000_000)
 
     mech_owned: Optional[str] = Field(None, max_length=TEXT_MAX)
+    mech_owned_other: Optional[str] = Field(None, max_length=STR_MAX)
     mech_rented: Optional[str] = Field(None, max_length=TEXT_MAX)
+    mech_rented_other: Optional[str] = Field(None, max_length=STR_MAX)
     mech_rental_rate_inr_hr: Optional[str] = Field(None, max_length=TEXT_MAX)
     mech_financed: Optional[str] = Field(None, max_length=10)
-    mech_loan_amount_inr_lakh: Optional[float] = Field(None, ge=0, le=1_000_000)
-    mech_loan_interest_pct: Optional[float] = Field(None, ge=0, le=100)
+    mech_loan_amount_inr_lakh: Optional[float] = Field(None, ge=0, le=1000)  # capped at INR 10 crore (1000 lakh)
+    mech_loan_interest_pct: Optional[float] = Field(None, ge=0, le=20)  # capped at 20% per annum
 
-    total_household_income_inr_lakh: Optional[float] = Field(None, ge=0, le=1_000_000)
+    total_household_income_inr_lakh: Optional[float] = Field(None, ge=0, le=1_000_000)  # legacy, superseded by bracket
+    total_household_income_bracket: Optional[str] = Field(None, max_length=20)
     non_farm_income_source: Optional[str] = Field(None, max_length=TEXT_MAX)
+    non_farm_income_source_other: Optional[str] = Field(None, max_length=STR_MAX)
     bank_account: Optional[str] = Field(None, max_length=10)
     overdraft_facility: Optional[str] = Field(None, max_length=10)
-    overdraft_limit_inr_lakh: Optional[float] = Field(None, ge=0, le=1_000_000)
+    overdraft_limit_inr_lakh: Optional[float] = Field(None, ge=0, le=1000)  # capped at INR 10 crore (1000 lakh)
 
     credit_linkage: str = Field(..., max_length=10)
     credit_source: Optional[str] = Field(None, max_length=STR_MAX)
-    credit_amount_inr: Optional[float] = Field(None, ge=0, le=1_000_000_000)
-    credit_interest_rate_pct: Optional[float] = Field(None, ge=0, le=100)
+    credit_source_other: Optional[str] = Field(None, max_length=STR_MAX)
+    credit_amount_inr: Optional[float] = Field(None, ge=0, le=100_000_000)  # capped at INR 10 crore
+    credit_interest_rate_pct: Optional[float] = Field(None, ge=0, le=20)  # capped at 20% per annum
     credit_repayment_months: Optional[int] = Field(None, ge=0, le=1200)
-    credit_outstanding_inr_lakh: Optional[float] = Field(None, ge=0, le=1_000_000)
+    credit_outstanding_inr_lakh: Optional[float] = Field(None, ge=0, le=1000)  # capped at INR 10 crore (1000 lakh)
     loan_application_outcome: Optional[str] = Field(None, max_length=STR_MAX)
     loan_rejection_reason: Optional[str] = Field(None, max_length=STR_MAX)
-    credit_gap_inr_lakh: Optional[float] = Field(None, ge=0, le=1_000_000)
+    loan_rejection_reason_other: Optional[str] = Field(None, max_length=STR_MAX)
+    credit_gap_inr_lakh: Optional[float] = Field(None, ge=0, le=1000)  # capped at INR 10 crore (1000 lakh)
 
     scheme_availed: str = Field(..., max_length=10)
     scheme_name: Optional[str] = Field(None, max_length=STR_MAX)
@@ -159,6 +168,7 @@ class SurveyIn(BaseModel):
     natural_calamity_5yr: Optional[str] = Field(None, max_length=10)
 
     input_source: str = Field(..., max_length=STR_MAX)
+    input_source_other: Optional[str] = Field(None, max_length=STR_MAX)
     input_distance_km: Optional[float] = Field(None, ge=0, le=100000)
     input_challenges: Optional[str] = Field(None, max_length=STR_MAX)
     input_challenges_other: Optional[str] = Field(None, max_length=STR_MAX)
@@ -168,7 +178,7 @@ class SurveyIn(BaseModel):
     tech_adoption_detail: Optional[str] = Field(None, max_length=TEXT_MAX)
 
     kcc_account: Optional[str] = Field(None, max_length=10)
-    kcc_limit_inr_lakh: Optional[float] = Field(None, ge=0, le=1_000_000)
+    kcc_limit_inr_lakh: Optional[float] = Field(None, ge=0, le=1000)  # capped at INR 10 crore (1000 lakh)
 
     mobile_verified: Optional[bool] = False
 
@@ -222,6 +232,13 @@ class SurveyIn(BaseModel):
             raise ValueError("must be a whole number (no decimals)")
         return v
 
+    @field_validator("tech_adoption_detail")
+    @classmethod
+    def tech_adoption_detail_is_text(cls, v):
+        if v is not None and v.strip() and not re.search(r"[a-zA-Z]{2,}", v):
+            raise ValueError("must be a real description, not just numbers or symbols")
+        return v
+
     @field_validator("yield_raw_qtl", "yield_processed_qtl")
     @classmethod
     def yield_positive_two_decimals(cls, v):
@@ -235,9 +252,9 @@ class SurveyIn(BaseModel):
 
     @model_validator(mode="after")
     def yield_matches_sale_type(self):
-        if self.sale_type == "Sold raw areca" and self.yield_raw_qtl is None:
+        if self.sale_type in ("Sold raw areca", "Sold both raw and processed areca") and self.yield_raw_qtl is None:
             raise ValueError("yield_raw_qtl is required for a raw areca sale")
-        if self.sale_type == "Sold processed areca" and self.yield_processed_qtl is None:
+        if self.sale_type in ("Sold processed areca", "Sold both raw and processed areca") and self.yield_processed_qtl is None:
             raise ValueError("yield_processed_qtl is required for a processed areca sale")
         return self
 
@@ -283,6 +300,14 @@ class SurveyOut(SurveyIn):
     @model_validator(mode="after")
     def yield_matches_sale_type(self):
         return self
+
+    # Same input-only reasoning as above: a content-shape rule (must contain
+    # real text, not just symbols/numbers) should never make an old row
+    # unreadable if a validator tightened after it was saved.
+    @field_validator("tech_adoption_detail")
+    @classmethod
+    def tech_adoption_detail_is_text(cls, v):
+        return v
 
 
 # ---------------- Plot Boundary Capture (v2) ----------------

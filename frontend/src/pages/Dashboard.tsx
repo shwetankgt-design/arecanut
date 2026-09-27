@@ -11,6 +11,38 @@ import YieldEstimator from "../components/YieldEstimator";
 
 const COLORS = ["#5A2D82", "#A6266E", "#F0AB00", "#8B5FB0", "#1E8E5A", "#C4304A", "#3E1F5C"];
 
+// Recharts' default Pie label rounds each slice's percentage independently,
+// so a pie's labels can sum to 101–104% instead of 100%. This uses the largest-
+// remainder method to round every slice while guaranteeing the labels sum to
+// exactly 100 (when there's any data at all).
+function withRoundedPercents<T extends { value: number }>(data: T[]): (T & { pct: number })[] {
+  const total = data.reduce((s, d) => s + d.value, 0);
+  if (total <= 0) return data.map((d) => ({ ...d, pct: 0 }));
+  const raw = data.map((d) => (d.value / total) * 100);
+  const floors = raw.map(Math.floor);
+  const remainder = 100 - floors.reduce((a, b) => a + b, 0);
+  const order = raw.map((r, i) => ({ i, frac: r - floors[i] })).sort((a, b) => b.frac - a.frac);
+  const pct = [...floors];
+  for (let k = 0; k < remainder; k++) pct[order[k].i] += 1;
+  return data.map((d, i) => ({ ...d, pct: pct[i] }));
+}
+
+// Recharts requires a Pie `label` function to return a positioned SVG element
+// (its own official docs pattern) — returning a bare string renders nothing at
+// all for the whole Pie, not just the label, which is what happened here.
+const RADIAN = Math.PI / 180;
+function pctLabel(props: any) {
+  const { cx, cy, midAngle, innerRadius, outerRadius, payload } = props;
+  const radius = innerRadius + (outerRadius - innerRadius) * 1.25;
+  const x = cx + radius * Math.cos(-midAngle * RADIAN);
+  const y = cy + radius * Math.sin(-midAngle * RADIAN);
+  return (
+    <text x={x} y={y} fill="#3E1F5C" fontSize={12} textAnchor={x > cx ? "start" : "end"} dominantBaseline="central">
+      {`${payload.pct}%`}
+    </text>
+  );
+}
+
 function KpiCard({ label, value, sub, onClick }: { label: string; value: string | number; sub?: string; onClick?: () => void }) {
   return (
     <div
@@ -55,11 +87,11 @@ export default function Dashboard() {
   const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const monthlyData = monthNames.map((mo) => ({ month: mo, qtl: Math.round(data.market_access.monthly_yield[mo] || 0) }));
   const districtData = data.reach.district_counts.map(([name, count]: any) => ({ name: trDistrict(name, lang), rawName: name, count }));
-  const channelData = data.market_access.channel_share.map(([name, value]: any) => ({ name, value }));
+  const channelData = withRoundedPercents(data.market_access.channel_share.map(([name, value]: any) => ({ name, value })));
   const creditSourceData = data.financial_inclusion.credit_source_share.map(([name, value]: any) => ({ name, value }));
   const challengeData = data.advisory_targeting.challenge_share.map(([name, value]: any) => ({ name, value }));
   const irrigationData = data.sustainability.irrigation_share.map(([name, value]: any) => ({ name, value }));
-  const saleTypeData = data.economics.sale_type_share.map(([name, value]: any) => ({ name, value }));
+  const saleTypeData = withRoundedPercents(data.economics.sale_type_share.map(([name, value]: any) => ({ name, value })));
 
   return (
     <div className="flex flex-col gap-4">
@@ -125,7 +157,7 @@ export default function Dashboard() {
         <Section title="Marketing Channel Share" lang={lang}>
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
-              <Pie data={channelData} dataKey="value" nameKey="name" outerRadius={80} label cursor="pointer" onClick={(d: any) => goto({ marketing_channel: d.payload?.name ?? d.name })}>
+              <Pie data={channelData} dataKey="value" nameKey="name" outerRadius={80} isAnimationActive={false} label={pctLabel} cursor="pointer" onClick={(d: any) => goto({ marketing_channel: d.payload?.name ?? d.name })}>
                 {channelData.map((_: any, i: number) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
               </Pie>
               <Tooltip />
@@ -136,7 +168,7 @@ export default function Dashboard() {
         <Section title="Raw vs Processed Sale Share" lang={lang}>
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
-              <Pie data={saleTypeData} dataKey="value" nameKey="name" outerRadius={80} label cursor="pointer" onClick={(d: any) => goto({ sale_type: d.payload?.name ?? d.name })}>
+              <Pie data={saleTypeData} dataKey="value" nameKey="name" outerRadius={80} isAnimationActive={false} label={pctLabel} cursor="pointer" onClick={(d: any) => goto({ sale_type: d.payload?.name ?? d.name })}>
                 {saleTypeData.map((_: any, i: number) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
               </Pie>
               <Tooltip />

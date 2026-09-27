@@ -116,6 +116,7 @@ class MachineMaster(Base):
     __tablename__ = "m_machine"
     id = Column(Integer, primary_key=True)
     name = Column(String, unique=True, nullable=False)
+    sort_order = Column(Integer, nullable=False, default=0)
 
 
 class OptionMaster(Base):
@@ -163,6 +164,7 @@ class FarmerSurvey(Base):
     society_name = Column(String, nullable=True)
     society_since_year = Column(Integer, nullable=True)
     society_benefits = Column(String, nullable=True)        # comma-separated
+    society_benefits_other = Column(String, nullable=True)
 
     # Module 2: Location Details
     village = Column(String, nullable=False)
@@ -180,6 +182,7 @@ class FarmerSurvey(Base):
     organic_cert_aware = Column(String, nullable=True)       # Yes/No — if organic_cert_applied == No
     intercropping = Column(String, nullable=True)            # Yes/No
     intercrop_crops = Column(String, nullable=True)          # comma-separated
+    intercrop_crops_other = Column(String, nullable=True)
     intercrop_area_acres = Column(Float, nullable=True)
 
     # Module 4: Cultivation Cost & Yield
@@ -210,6 +213,7 @@ class FarmerSurvey(Base):
 
     # Module 7: Cultivation Challenges
     cultivation_challenges = Column(String, nullable=True)  # comma-separated
+    cultivation_challenges_other = Column(String, nullable=True)
     machinery_waiting_days = Column(Integer, nullable=True)  # if "Availability of Farm Machinery" selected
 
     # Module 8: Other Crops (Diversification)
@@ -224,15 +228,19 @@ class FarmerSurvey(Base):
 
     # Module 9: Farm Mechanisation
     mech_owned = Column(String, nullable=True)               # comma-separated
+    mech_owned_other = Column(String, nullable=True)
     mech_rented = Column(String, nullable=True)               # comma-separated
+    mech_rented_other = Column(String, nullable=True)
     mech_rental_rate_inr_hr = Column(String, nullable=True)   # JSON string {machine: rate}
     mech_financed = Column(String, nullable=True)             # Yes/No — if any machine owned
     mech_loan_amount_inr_lakh = Column(Float, nullable=True)
     mech_loan_interest_pct = Column(Float, nullable=True)
 
     # Household income & credit profile
-    total_household_income_inr_lakh = Column(Float, nullable=True)
+    total_household_income_inr_lakh = Column(Float, nullable=True)  # legacy free-numeric entry, superseded by the bracket field below
+    total_household_income_bracket = Column(String, nullable=True)  # "<10000" | "10000-1L" | "1L-10L" | ">10L"
     non_farm_income_source = Column(String, nullable=True)   # comma-separated
+    non_farm_income_source_other = Column(String, nullable=True)
     bank_account = Column(String, nullable=True)              # Yes/No
     overdraft_facility = Column(String, nullable=True)        # Yes/No
     overdraft_limit_inr_lakh = Column(Float, nullable=True)
@@ -240,12 +248,14 @@ class FarmerSurvey(Base):
     # Module 10: Credit & Finance
     credit_linkage = Column(String, nullable=False)
     credit_source = Column(String, nullable=True)
+    credit_source_other = Column(String, nullable=True)
     credit_amount_inr = Column(Float, nullable=True)
     credit_interest_rate_pct = Column(Float, nullable=True)
     credit_repayment_months = Column(Integer, nullable=True)
     credit_outstanding_inr_lakh = Column(Float, nullable=True)
     loan_application_outcome = Column(String, nullable=True)   # if credit_linkage == No
     loan_rejection_reason = Column(String, nullable=True)      # if loan_application_outcome == Rejected
+    loan_rejection_reason_other = Column(String, nullable=True)
     credit_gap_inr_lakh = Column(Float, nullable=True)
 
     # Module 11: Government Schemes
@@ -265,6 +275,7 @@ class FarmerSurvey(Base):
 
     # Module 14: Input Supply Chain
     input_source = Column(String, nullable=False)
+    input_source_other = Column(String, nullable=True)
     input_distance_km = Column(Float, nullable=True)
     input_challenges = Column(String, nullable=True)
     input_challenges_other = Column(String, nullable=True)

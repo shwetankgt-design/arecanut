@@ -249,7 +249,7 @@ def get_schemes(db: Session = Depends(get_db)):
 
 @app.get("/api/masters/machines")
 def get_machines(db: Session = Depends(get_db)):
-    return [x.name for x in db.query(m.MachineMaster).order_by(m.MachineMaster.name).all()]
+    return [x.name for x in db.query(m.MachineMaster).order_by(m.MachineMaster.sort_order).all()]
 
 
 @app.get("/api/masters/options")
@@ -356,10 +356,12 @@ def get_survey(survey_id: int, db: Session = Depends(get_db), user: m.User = Dep
 
 
 def compute_income(payload: SurveyIn) -> float:
-    yield_qtl = payload.yield_processed_qtl if payload.sale_type == "Sold processed areca" else payload.yield_raw_qtl
-    gross = (yield_qtl or 0) * payload.rate_inr_per_kg * 100
+    includes_raw = payload.sale_type in ("Sold raw areca", "Sold both raw and processed areca")
+    includes_processed = payload.sale_type in ("Sold processed areca", "Sold both raw and processed areca")
+    yield_qtl = (payload.yield_raw_qtl or 0 if includes_raw else 0) + (payload.yield_processed_qtl or 0 if includes_processed else 0)
+    gross = yield_qtl * payload.rate_inr_per_kg * 100
     total = gross - payload.cultivation_cost_inr
-    if payload.sale_type == "Sold processed areca" and payload.processing_cost_inr:
+    if includes_processed and payload.processing_cost_inr:
         total -= payload.processing_cost_inr
     return round(total, 0)
 

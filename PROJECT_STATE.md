@@ -69,7 +69,7 @@ Both commands must be run from the **repo root** (`D:\CLAUD\arecanut-app`), not 
 
 ## 3. Current Status (update this section every session)
 
-**Last updated**: 2026-09-27, evening — farmer-ID auto-generation, optional FPC/FPO name, mandatory-field dependency hints, login "last updated" timestamp.
+**Last updated**: 2026-09-27, late evening — village-first autocomplete (replaces the District→Taluka→Village cascade from the v4 round), farmer-ID auto-generation, optional FPC/FPO name, mandatory-field dependency hints, login "last updated" timestamp.
 
 **Latest APK delivered**: v4.0 (versionCode 4) — does **not** yet include this evening's farmer-ID/hints/login-timestamp changes (those landed after the v4 APK build). Backend + frontend web are live in production with them; **build v5 next if the user wants these in the Android app.**
 
@@ -90,6 +90,14 @@ These were explicitly deferred by the client in the v4 retest file — do not bu
 - **OBS-046/048**: Client noted "FS team may provide inputs on upper limits" / "Social & FS Team may provide inputs" for exact numeric caps — implemented with the specific numbers the client DID give in the "Expected Outcome" column (20% interest cap, ₹10 crore absolute cap, household income brackets), but these are provisional pending the named teams' sign-off.
 
 ## 6. Session Log
+
+### Session — 2026-09-27 late evening (village-first autocomplete, reverting the District→Taluka→Village cascade — COMPLETE, deployed)
+The client's own earlier explicit requirement (OBS-011, v4 round) was three cascading dropdowns (District → Taluka → Village) — this session's request explicitly reverses that: three dropdowns were reported as making data entry "tough". **This is a direct, later, explicit override of that earlier requirement — the cascade dropdowns are gone.** If a future round asks for cascading dropdowns again, note this back-and-forth so the next change doesn't feel like a regression.
+- Replaced the District/Taluka/Village select-cascade with a single **village-first autocomplete** text field: typing a few letters filters the full `villagesFlat` list (fetched once on mount, same `/api/masters/villages-flat` endpoint used in the very first pre-OBS-011 design) and shows up to 8 matches with their Taluka/District as a sub-label; selecting one auto-fills Taluka and District (shown read-only, "(auto-filled)") and engages the existing village-lock behavior unchanged.
+- The suggestion list uses `onMouseDown` (not `onClick`) so a selection registers before the input's `onBlur` closes the dropdown — a real gotcha hit while testing: a synthetic `.click()` in an automated test does NOT fire `onMouseDown`, so testing this needs `dispatchEvent(new MouseEvent('mousedown', {bubbles:true}))`, not `.click()`.
+- Removed `api.districts()`/`api.talukas()`/`api.villages()` calls and the `districtOptions`/`talukaOptions`/`villageOptions` state from the wizard (the underlying API endpoints themselves were left alone in `main.py`/`api.ts` in case anything else uses them — only the wizard's own cascade UI was removed).
+- Verified end-to-end: typing "kal" surfaces both "Kalasa" and "Kalmadka"; selecting "Kalasa" correctly auto-fills Taluka=N.R.Pura, District=Chikkamagaluru, locks the village, and the taluka-scoped FPC dropdown (which depends on `form.taluka`) populates correctly afterward.
+- **Frontend-only change** — no backend/schema changes, so only the frontend Vercel project was redeployed this round.
 
 ### Session — 2026-09-27 evening (farmer-ID auto-gen, optional FPC name, dependency hints, login timestamp — COMPLETE, deployed)
 Ad-hoc follow-up requests (not from a retest file):

@@ -75,6 +75,8 @@ Both commands must be run from the **repo root** (`D:\CLAUD\arecanut-app`), not 
 
 **Backend and frontend are both deployed to production with all v4 fixes AND this RBAC/master-data round** (see Session Log below for the full list and verification notes).
 
+**Real-world scenario test pass (2026-09-27, night, part 3)**: ran a full field-user survey submission end-to-end against production (login as `enumerator1`, village autocomplete, OTP simulation, "Sold both raw and processed" sale type, Draw-on-Map plot boundary, submit) and found two frontend bugs, both fixed and committed (`1f2161e`, **not yet pushed/deployed** — see Session Log). Test artifacts (`TEST_CASES.md`, `Arecanut_Test_Cases.xlsx`, 126 cases) also added this round.
+
 ## 4. Explicit "skip for now" items (do NOT implement without new instruction)
 
 These were explicitly deferred by the client in the v4 retest file — do not build them speculatively:
@@ -90,6 +92,21 @@ These were explicitly deferred by the client in the v4 retest file — do not bu
 - **OBS-046/048**: Client noted "FS team may provide inputs on upper limits" / "Social & FS Team may provide inputs" for exact numeric caps — implemented with the specific numbers the client DID give in the "Expected Outcome" column (20% interest cap, ₹10 crore absolute cap, household income brackets), but these are provisional pending the named teams' sign-off.
 
 ## 6. Session Log
+
+### Session — 2026-09-27 night, part 3 (real-world scenario test pass + 2 bug fixes — COMMITTED `1f2161e`, NOT YET PUSHED/DEPLOYED)
+User asked for test cases (delivered as `TEST_CASES.md` + `Arecanut_Test_Cases.xlsx`, 126 cases across 11 categories) and then to actually test the live application for a real-world scenario and report changes needed.
+
+**What was tested**: logged in as `enumerator1` (field user) against **production** (`arecanut-frontend.vercel.app`) and ran a complete realistic New Survey Entry from scratch — village-first autocomplete ("Kalasa" → auto-filled N.R.Pura/Chikkamagaluru), mobile OTP simulation (send/verify), negative-number stripping on numeric fields, "Sold both raw and processed areca" sale type (both yield fields appear, income sums both), conditional required-field hints, household income bracket selection, credit/finance conditional fields, irrigation source chips, and a Draw-on-Map plot boundary (drew a 4-point polygon, got a real computed area cross-checked against the declared acreage) — then submitted successfully (farmer id `NCCF/KA/0101` auto-assigned) and reviewed the resulting record.
+
+**Two real bugs found and fixed** (both in `frontend/src/pages/`):
+1. **Misleading negative income preview** (`DataEntryWizard.tsx`) — cultivation cost is captured a full step (Land & Production) before Yield/Rate (Sales & Logistics). The "Auto-calculated Total Income" box computed `yield*rate*100 - cost - processing_cost` continuously, so the instant an enumerator reached the Sales step — before typing a rate — it displayed a large negative number (e.g. "₹ -45,000", exactly `-cultivation_cost`) with no indication it was incomplete. In a real field setting this reads as a data-entry error, not a normal in-progress state. Fixed by adding a `hasIncomeInputs` check (`yield > 0 && rate > 0`) that shows "Enter Yield and Rate Realised to calculate." until both are present, matching the review step further down which was already safe (yield/rate are validated required by the time that step is reachable).
+2. **Household income invisible on the record view** (`SurveyView.tsx`) — the farmer record detail page was still reading `total_household_income_inr_lakh` (the free-numeric field OBS-048 replaced with a bracket dropdown, `total_household_income_bracket`, back in the v4 round). Since the wizard has written only the bracket field ever since, **every survey submitted since the v4 round has shown a blank "Total Household Income" on its record view**, despite the data being correctly captured and stored — confirmed by checking `backend/app/schemas.py::SurveyOut`, which does carry the bracket field, so this was a pure frontend display bug, not a data-loss bug. Fixed by mapping the bracket value to its human label (matching the wizard's own option labels) with a fallback to the legacy numeric field for records that predate the bracket change, so old records still display correctly too.
+
+**Verification**: both fixes checked with `npx tsc --noEmit` (clean) and re-tested live in the browser against a throwaway local backend (proxy temporarily repointed to `:8399`, reverted after) — confirmed the income box now shows the neutral prompt before rate is entered and the correct ₹ figure once it is. The household-income fix was verified by code inspection (confirmed the exact same field-name mismatch pattern against `SurveyOut`) rather than a full second wizard run, given time constraints — worth a quick manual double-check next session by submitting one more survey through to the record view.
+
+**Test data cleanup**: the `Ramesh Poojary` / `NCCF/KA/0101` survey created during the production test walkthrough was deleted via the admin-only DELETE endpoint immediately after — production data is back to its pre-test state.
+
+**Not yet done**: `git push origin main` and redeploying the frontend to Vercel — the two fixes are committed locally (`1f2161e`) but production still has the pre-fix behavior until this is pushed and `arecanut-frontend` is redeployed. Do this next unless told otherwise.
 
 ### Session — 2026-09-27 night (RBAC rebuild: 2 roles, per-user module permissions, single-admin enforcement — BACKEND+FRONTEND BUILT & LOCALLY VERIFIED, NOT YET DEPLOYED, NOT YET COMMITTED)
 User's request: exactly two roles (field team, admin); admin creates users and assigns role + per-module access from a screen; field-team default capabilities = New Survey Entry, Farmer Records (view+edit), Plots & Map; admin has all access implicitly; **a second admin account must never be creatable**; standard-practice audit logging; a config file documenting all API connections for web+mobile; admin can manage all master data (current and future).

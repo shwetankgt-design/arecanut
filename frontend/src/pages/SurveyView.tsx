@@ -9,6 +9,13 @@ import { api } from "../api";
 import { useLang } from "../LangContext";
 import { trDistrict, trTaluka, trVillage } from "../i18n";
 
+const HOUSEHOLD_INCOME_BRACKET_LABELS: Record<string, string> = {
+  "<10000": "Less than ₹10,000",
+  "10000-1L": "₹10,000 to ₹1 Lakh",
+  "1L-10L": "₹1 Lakh to ₹10 Lakh",
+  ">10L": "Greater than ₹10 Lakh",
+};
+
 function Row({ label, value }: { label: string; value: any }) {
   const isEmpty = value === null || value === undefined || value === "" || value === "-";
   return (
@@ -211,7 +218,13 @@ export default function SurveyView() {
         </Section>
 
         <Section icon={Coins} title="Household Income">
-          <Row label="Total Household Income (INR Lakh)" value={s.total_household_income_inr_lakh} />
+          <Row label="Total Household Income" value={
+            HOUSEHOLD_INCOME_BRACKET_LABELS[s.total_household_income_bracket] || s.total_household_income_bracket
+            // Records created before the bracket dropdown replaced free numeric entry
+            // (OBS-048) only have the legacy INR-Lakh figure — fall back to that so
+            // those older rows don't show blank.
+            || (s.total_household_income_inr_lakh != null ? `₹${s.total_household_income_inr_lakh} Lakh` : undefined)
+          } />
           <Row label="Non-Farm Income Source(s)" value={s.non_farm_income_source?.split(",").join(", ")} />
           <Row label="Bank Account" value={s.bank_account} />
           <Row label="Overdraft Facility" value={s.overdraft_facility} />

@@ -487,6 +487,19 @@ export default function DataEntryWizard() {
     return Math.round(y * r * 100 - c - p);
   }, [form.yield_raw_qtl, form.yield_processed_qtl, form.rate_inr_per_kg, form.cultivation_cost_inr, form.processing_cost_inr, form.sale_type]);
 
+  // Cultivation cost is captured a whole step before yield/rate, so the income
+  // preview would otherwise flash a large negative number (just -cost) the
+  // moment an enumerator reaches this step and before they've typed a rate —
+  // easy to mistake for a data-entry error in the field. Hide the number until
+  // there's an actual yield*rate to net it against.
+  const hasIncomeInputs = useMemo(() => {
+    const includesRaw = form.sale_type === "Sold raw areca" || form.sale_type === "Sold both raw and processed areca";
+    const includesProcessed = form.sale_type === "Sold processed areca" || form.sale_type === "Sold both raw and processed areca";
+    const y = (includesRaw ? parseFloat(form.yield_raw_qtl) || 0 : 0) + (includesProcessed ? parseFloat(form.yield_processed_qtl) || 0 : 0);
+    const r = parseFloat(form.rate_inr_per_kg) || 0;
+    return y > 0 && r > 0;
+  }, [form.yield_raw_qtl, form.yield_processed_qtl, form.rate_inr_per_kg, form.sale_type]);
+
   const doLookup = async () => {
     setLookupMsg(null);
     try {
@@ -1022,7 +1035,11 @@ export default function DataEntryWizard() {
                 </Field>
                 <div className="md:col-span-2 gt-card p-3 bg-[#F1EBF7] border-none">
                   <div className="text-xs text-[var(--gt-text-muted)]">Auto-calculated Total Income from Areca</div>
-                  <div className="text-xl font-bold text-[var(--gt-purple-dark)]">₹ {computedIncome.toLocaleString("en-IN")}</div>
+                  {hasIncomeInputs ? (
+                    <div className="text-xl font-bold text-[var(--gt-purple-dark)]">₹ {computedIncome.toLocaleString("en-IN")}</div>
+                  ) : (
+                    <div className="text-sm text-[var(--gt-text-muted)]">Enter Yield and Rate Realised to calculate.</div>
+                  )}
                 </div>
               </div>
             </SubSection>

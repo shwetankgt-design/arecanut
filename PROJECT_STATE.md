@@ -69,11 +69,11 @@ Both commands must be run from the **repo root** (`D:\CLAUD\arecanut-app`), not 
 
 ## 3. Current Status (update this section every session)
 
-**Last updated**: 2026-09-27, night — role-based access control rebuild: exactly two roles (`admin`/`field`), admin-only User Management screen with per-user per-module permission grants, hard single-admin enforcement, audit logging on user-management actions, `API_ENDPOINTS.md` added as the config-of-record for web+mobile API wiring. **Backend implemented and verified locally; NOT YET deployed to production and NOT YET committed to git — see Open Items.**
+**Last updated**: 2026-09-27, night — role-based access control rebuild (2 roles, per-user module permissions, single-admin enforcement, audit logging, `API_ENDPOINTS.md`) plus a generic admin CRUD registry for all master data. **Committed (`c306a47`, `a55f4fe`), pushed to `origin/main`, and DEPLOYED TO PRODUCTION — both backend and frontend.** Verified live against production: `enumerator1`/`enumerator2` correctly auto-migrated from `role="enumerator"` to `role="field"` with default permissions backfilled, admin login unaffected, all 70+ existing survey records still readable (zero regressions), User Management and Master Data admin screens both confirmed working against real production data in-browser.
 
-**Latest APK delivered**: v4.0 (versionCode 4) — does **not** include the village-first autocomplete, farmer-ID/hints/login-timestamp round, or this RBAC round. Build v5 if/when the user wants a fresh Android build.
+**Latest APK delivered**: v4.0 (versionCode 4) — does **not** include the village-first autocomplete, farmer-ID/hints/login-timestamp round, or this RBAC + master-data round. Build v5 if/when the user wants a fresh Android build with these changes.
 
-**Backend and frontend are both deployed to production with all v4 fixes** (see Session Log below for the full list and verification notes). All 104 production survey records were re-validated against the new schema before and after deploy — zero regressions. **This RBAC round has NOT been deployed yet** — do not assume production has the new role model until a Session Log entry says so.
+**Backend and frontend are both deployed to production with all v4 fixes AND this RBAC/master-data round** (see Session Log below for the full list and verification notes).
 
 ## 4. Explicit "skip for now" items (do NOT implement without new instruction)
 
@@ -115,9 +115,10 @@ User's request: exactly two roles (field team, admin); admin creates users and a
 - Browser-level (via the in-app browser pane against the real UI): admin login shows all 6 nav items including Users; created a field user with only "New Survey Entry" checked via the actual form; logged in as that user and confirmed the nav showed **only** Dashboard + New Survey Entry; direct navigation to `/users` as that user redirected to `/` (route guard confirmed working, not just nav hiding).
 
 **NOT done this round** (explicitly deferred, next steps for a future session):
-- Not deployed to Vercel production (backend or frontend) and not yet committed/pushed to git — this round exists only in the local working tree as of this entry.
 - No Android APK build for this round.
 - No admin-facing UI for browsing the audit log (entries are written correctly but only queryable directly from the `audit_log` table).
+
+**Deployed to production later the same session** — see the deploy note at the end of part 2 below.
 
 ### Session — 2026-09-27 night, part 2 (generic master-data CRUD registry — COMPLETE, locally verified, NOT YET DEPLOYED)
 Closes the one gap left open at the end of part 1: "admin user should be able to create/update and manage all master data which are already created and going to be created in the future."
@@ -135,7 +136,9 @@ Closes the one gap left open at the end of part 1: "admin user should be able to
 - Browser-level (real UI, in-app browser pane): logged in as admin, opened Master Data, confirmed all 8 tabs and existing rows render; added a new district via the "Add" form; switched to the Talukas tab and confirmed the new district appeared in the fk `<select>`; created a new taluka against it and confirmed the row displayed the resolved district name; attempted to delete that district while the taluka still existed and confirmed the exact backend error message surfaced in the UI; deleted the taluka, then the district, and confirmed both disappeared from their respective tables.
 - `npx tsc --noEmit -p tsconfig.app.json` and `python -c "import app.main"` both clean after these changes.
 
-**Still not done**: deploy to production, git push, Android APK build, and an audit-log browsing UI — same as noted at the end of part 1.
+**Still not done**: Android APK build and an audit-log browsing UI.
+
+**Deployed to production**: both commits (`c306a47` RBAC, `a55f4fe` master-data registry) pushed to `origin/main`, then backend deployed first (`vercel --prod` on `arecanut-backend`), then frontend (`vercel --prod` on `arecanut-frontend`). Verified live in production immediately after: `admin` login returns `role: "admin"`; `GET /api/users` shows `enumerator1`/`enumerator2` correctly auto-migrated to `role: "field"` with the default 3-module permission set backfilled (confirms `migrate_roles_and_permissions()` ran cleanly against the real Postgres data on cold start); `GET /api/admin/master-data/tables` returns all 8 registered tables; `GET /api/surveys` still returns existing records with HTTP 200 (regression check — the new role/permission columns didn't break survey reads). Also confirmed in the real browser against `https://arecanut-frontend.vercel.app`: admin login shows the full nav including Users and Master Data, the User Management table renders the three real production accounts with correct roles/modules, and Master Data renders the real district list. No production data was modified by this verification (all read-only checks plus the one-time idempotent role-rename migration, which is safe to run again on future deploys).
 
 ### Session — 2026-09-27 late evening (village-first autocomplete, reverting the District→Taluka→Village cascade — COMPLETE, deployed)
 The client's own earlier explicit requirement (OBS-011, v4 round) was three cascading dropdowns (District → Taluka → Village) — this session's request explicitly reverses that: three dropdowns were reported as making data entry "tough". **This is a direct, later, explicit override of that earlier requirement — the cascade dropdowns are gone.** If a future round asks for cascading dropdowns again, note this back-and-forth so the next change doesn't feel like a regression.

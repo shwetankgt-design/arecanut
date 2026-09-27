@@ -1,6 +1,6 @@
 import re
 import json
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -20,6 +20,7 @@ class TokenOut(BaseModel):
     role: str
     username: str
     full_name: str
+    permissions: List[str] = []
 
 
 class RefreshIn(BaseModel):
@@ -34,6 +35,85 @@ class UserOut(BaseModel):
     username: str
     full_name: str
     role: str
+    permissions: List[str] = []
+
+
+PERMISSION_MODULE_VALUES = ("survey_entry", "farmer_records", "plots_map")
+
+
+class UserAdminOut(BaseModel):
+    """Full user record for the admin-only User Management screen."""
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    username: str
+    full_name: str
+    email: Optional[str] = None
+    role: str
+    permissions: List[str] = []
+    is_active: bool
+    created_at: datetime
+    locked_until: Optional[datetime] = None
+
+    @field_validator("permissions", mode="before")
+    @classmethod
+    def split_permissions(cls, v):
+        # The DB stores this as a comma-separated string (see User.permissions
+        # in models.py); this lets `.model_validate(user_row, from_attributes=True)`
+        # work directly against the ORM object without a manual conversion step.
+        if isinstance(v, str):
+            return [p for p in v.split(",") if p]
+        return v or []
+
+
+class UserCreateIn(BaseModel):
+    username: str = Field(..., min_length=3, max_length=50, pattern=r"^[a-zA-Z0-9_.-]+$")
+    full_name: str = Field(..., min_length=1, max_length=STR_MAX)
+    email: Optional[str] = Field(None, max_length=200)
+    password: str = Field(..., min_length=1, max_length=200)
+    role: str = Field(..., max_length=10)
+    permissions: List[str] = []
+
+    @field_validator("role")
+    @classmethod
+    def role_valid(cls, v: str) -> str:
+        if v not in ("admin", "field"):
+            raise ValueError('role must be "admin" or "field"')
+        return v
+
+    @field_validator("permissions")
+    @classmethod
+    def permissions_valid(cls, v: List[str]) -> List[str]:
+        bad = [p for p in v if p not in PERMISSION_MODULE_VALUES]
+        if bad:
+            raise ValueError(f"unknown permission module(s): {bad}")
+        return v
+
+
+class UserUpdateIn(BaseModel):
+    """All fields optional — only what's provided gets changed."""
+    full_name: Optional[str] = Field(None, min_length=1, max_length=STR_MAX)
+    email: Optional[str] = Field(None, max_length=200)
+    role: Optional[str] = Field(None, max_length=10)
+    permissions: Optional[List[str]] = None
+    is_active: Optional[bool] = None
+    new_password: Optional[str] = Field(None, min_length=1, max_length=200)
+
+    @field_validator("role")
+    @classmethod
+    def role_valid(cls, v):
+        if v is not None and v not in ("admin", "field"):
+            raise ValueError('role must be "admin" or "field"')
+        return v
+
+    @field_validator("permissions")
+    @classmethod
+    def permissions_valid(cls, v):
+        if v is None:
+            return v
+        bad = [p for p in v if p not in PERMISSION_MODULE_VALUES]
+        if bad:
+            raise ValueError(f"unknown permission module(s): {bad}")
+        return v
 
 
 class ForgotPasswordIn(BaseModel):

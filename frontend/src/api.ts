@@ -122,4 +122,8 @@ export const api = {
     req(`/surveys/${surveyId}/plot-boundary`, { method: "PUT", body: JSON.stringify(data) }),
   deletePlotBoundary: (surveyId: number) => req(`/surveys/${surveyId}/plot-boundary`, { method: "DELETE" }),
   listPlots: (onlyWithBoundary = true) => req(`/plots?only_with_boundary=${onlyWithBoundary}`),
+  listUsers: () => req("/users"),
+  permissionModules: (): Promise<string[]> => req("/users/permission-modules"),
+  createUser: (data: any) => req("/users", { method: "POST", body: JSON.stringify(data) }),
+  updateUser: (id: number, data: any) => req(`/users/${id}`, { method: "PUT", body: JSON.stringify(data) }),
 };

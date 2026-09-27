@@ -69,11 +69,11 @@ Both commands must be run from the **repo root** (`D:\CLAUD\arecanut-app`), not 
 
 ## 3. Current Status (update this section every session)
 
-**Last updated**: 2026-09-27, late evening — village-first autocomplete (replaces the District→Taluka→Village cascade from the v4 round), farmer-ID auto-generation, optional FPC/FPO name, mandatory-field dependency hints, login "last updated" timestamp.
+**Last updated**: 2026-09-27, night — role-based access control rebuild: exactly two roles (`admin`/`field`), admin-only User Management screen with per-user per-module permission grants, hard single-admin enforcement, audit logging on user-management actions, `API_ENDPOINTS.md` added as the config-of-record for web+mobile API wiring. **Backend implemented and verified locally; NOT YET deployed to production and NOT YET committed to git — see Open Items.**
 
-**Latest APK delivered**: v4.0 (versionCode 4) — does **not** yet include this evening's farmer-ID/hints/login-timestamp changes (those landed after the v4 APK build). Backend + frontend web are live in production with them; **build v5 next if the user wants these in the Android app.**
+**Latest APK delivered**: v4.0 (versionCode 4) — does **not** include the village-first autocomplete, farmer-ID/hints/login-timestamp round, or this RBAC round. Build v5 if/when the user wants a fresh Android build.
 
-**Backend and frontend are both deployed to production with all v4 fixes** (see Session Log below for the full list and verification notes). All 104 production survey records were re-validated against the new schema before and after deploy — zero regressions.
+**Backend and frontend are both deployed to production with all v4 fixes** (see Session Log below for the full list and verification notes). All 104 production survey records were re-validated against the new schema before and after deploy — zero regressions. **This RBAC round has NOT been deployed yet** — do not assume production has the new role model until a Session Log entry says so.
 
 ## 4. Explicit "skip for now" items (do NOT implement without new instruction)
 
@@ -90,6 +90,35 @@ These were explicitly deferred by the client in the v4 retest file — do not bu
 - **OBS-046/048**: Client noted "FS team may provide inputs on upper limits" / "Social & FS Team may provide inputs" for exact numeric caps — implemented with the specific numbers the client DID give in the "Expected Outcome" column (20% interest cap, ₹10 crore absolute cap, household income brackets), but these are provisional pending the named teams' sign-off.
 
 ## 6. Session Log
+
+### Session — 2026-09-27 night (RBAC rebuild: 2 roles, per-user module permissions, single-admin enforcement — BACKEND+FRONTEND BUILT & LOCALLY VERIFIED, NOT YET DEPLOYED, NOT YET COMMITTED)
+User's request: exactly two roles (field team, admin); admin creates users and assigns role + per-module access from a screen; field-team default capabilities = New Survey Entry, Farmer Records (view+edit), Plots & Map; admin has all access implicitly; **a second admin account must never be creatable**; standard-practice audit logging; a config file documenting all API connections for web+mobile; admin can manage all master data (current and future).
+
+**Role model** (`backend/app/models.py::User`): `role` is now `"admin" | "field"` (renamed from the old `"admin" | "enumerator"`). New `permissions` column — comma-separated string of module keys, stored **per user**, not derived purely from role — because the requirement was "assign... access right of module... to particular user", i.e. two field users could in principle have different module sets. `backend/app/db.py::migrate_roles_and_permissions()` (new, idempotent, runs every startup after `sync_missing_columns()`) renames any existing `"enumerator"` rows to `"field"` and backfills the default permission set for any `field` row left with a NULL `permissions` column — necessary because `ALTER TABLE ADD COLUMN` (the existing `sync_missing_columns()` mechanism) does not retroactively apply a Python-side ORM default to pre-existing rows.
+
+**Permission enforcement** (`backend/app/auth.py`): `PERMISSION_MODULES = ["survey_entry", "farmer_records", "plots_map"]`; `require_permission(module)` dependency — an `admin` passes unconditionally, a `field` user is checked against their stored `permissions`. Applied to `list_surveys`/`get_survey`/`update_survey` → `farmer_records`, `create_survey` → `survey_entry`, all plot-boundary + `list_plots` endpoints → `plots_map`. **`delete_survey` deliberately stays `require_role("admin")` only** — delete was never mentioned in the field-team capability list, so it is not exposed as a grantable permission.
+
+**User management API** (`backend/app/main.py`, admin-only, all new):
+- `GET /api/users` — list all users (`UserAdminOut`, splits the comma-string into a `permissions: List[str]`).
+- `GET /api/users/permission-modules` — the fixed grantable module list, single source of truth the frontend renders checkboxes from.
+- `POST /api/users` — create user. **Rejects with 400 if `role=="admin"` and an admin row already exists** — this is the hard single-admin enforcement the user explicitly required, checked at the database level on every create, not just at seed time.
+- `PUT /api/users/{id}` — update role/permissions/name/email/active/password. Same single-admin guard on any role change to `"admin"`; additionally **rejects demoting or deactivating the sole existing admin** (`role != "admin"` or `is_active=False` when they're currently the only admin) so the system can never end up with zero admins either. A password change force-revokes all of that user's refresh tokens (`revoke_all_refresh_tokens`).
+- Both mutations call `audit(db, request, "user_create"/"user_update", user=admin, resource="user:<id>", detail=...)` — per the "standard practice" audit-logging requirement, using the pre-existing `AuditLog` table/helper rather than inventing a new logging mechanism.
+
+**Frontend** (all new/changed): `AuthContext.tsx` now carries `permissions: string[]` on `AuthUser` and exposes `hasPermission(module)` (`true` unconditionally for `role==="admin"`). `ProtectedRoute.tsx` gained a `require` prop (`"admin"` or a module key) that redirects to `/` if unmet — used in `App.tsx` to gate `/entry`, `/farmers`+`/farmers/:id`, `/plots`+plot-boundary routes by module, and `/masters`+new `/users` route to admin-only. `Layout.tsx`'s desktop nav and mobile bottom nav both now filter by `hasPermission`/`role` instead of showing a fixed list; added a `/users` nav entry (admin-only). New page `frontend/src/pages/UserManagement.tsx` — table of all users with role/modules/status, a create/edit modal with a role toggle (Admin option disabled+explained when an admin already exists and this isn't that admin), and module checkboxes shown only for `role="field"`. `api.ts` gained `listUsers`/`permissionModules`/`createUser`/`updateUser`.
+
+**New file `API_ENDPOINTS.md`** (repo root) — the "configuration file" the user asked for: documents how web vs. the Capacitor-wrapped Android app resolve the API base (`frontend/src/api.ts`'s `VITE_API_BASE` env var — same codebase, different build-time value, no separate mobile client), the full role/permission model, and every backend endpoint with its required permission.
+
+**Verification performed** (all local, against a throwaway SQLite `test_rbac.db`, temp backend on port 8399 with `vite.config.ts`'s proxy temporarily repointed at it and reverted to `:8300` afterward — no production system touched):
+- `python -c "import app.main"` clean; `npx tsc --noEmit -p tsconfig.app.json` clean.
+- curl-level: admin login → list users → create field user with a subset of permissions → creating a 2nd admin correctly rejected (400) → updating a field user's permissions works → demoting the sole admin correctly rejected (400) → a field user hitting `/api/users` correctly gets 403 → a field user hitting `/api/plots` (a permission they do have) correctly succeeds (200).
+- Browser-level (via the in-app browser pane against the real UI): admin login shows all 6 nav items including Users; created a field user with only "New Survey Entry" checked via the actual form; logged in as that user and confirmed the nav showed **only** Dashboard + New Survey Entry; direct navigation to `/users` as that user redirected to `/` (route guard confirmed working, not just nav hiding).
+
+**NOT done this round** (explicitly deferred, next steps for a future session):
+- The generic master-data CRUD registry (admin create/update/manage District/Taluka/Village/Society/CropMaster/SchemeMaster/MachineMaster/OptionMaster, plus any future master table, without new per-table endpoint code) — `MasterData.tsx` is still the old read-only pill-list view. This was explicit in the user's request ("admin user should be able to create/update and manage all master data... already created and going to be created in the future") and is the main remaining gap.
+- Not deployed to Vercel production (backend or frontend) and not yet committed/pushed to git — this round exists only in the local working tree as of this entry.
+- No Android APK build for this round.
+- No admin-facing UI for browsing the audit log (entries are written correctly but only queryable directly from the `audit_log` table).
 
 ### Session — 2026-09-27 late evening (village-first autocomplete, reverting the District→Taluka→Village cascade — COMPLETE, deployed)
 The client's own earlier explicit requirement (OBS-011, v4 round) was three cascading dropdowns (District → Taluka → Village) — this session's request explicitly reverses that: three dropdowns were reported as making data entry "tough". **This is a direct, later, explicit override of that earlier requirement — the cascade dropdowns are gone.** If a future round asks for cascading dropdowns again, note this back-and-forth so the next change doesn't feel like a regression.

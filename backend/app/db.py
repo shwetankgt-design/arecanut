@@ -64,3 +64,29 @@ def sync_missing_columns():
             ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {col_type}'
             with engine.begin() as conn:
                 conn.execute(text(ddl))
+
+
+def migrate_roles_and_permissions():
+    """
+    One-time-per-deploy data fixup, safe to call on every startup (idempotent):
+    - Renames the old "enumerator" role to "field" (the role model changed from
+      admin/enumerator to admin/field with per-user module permissions).
+    - Backfills a default permission set for any "field" user left with a NULL
+      `permissions` column — ALTER TABLE ADD COLUMN (see sync_missing_columns
+      above) does not retroactively apply a Python-side ORM default to existing
+      rows, only to new inserts, so this closes that gap explicitly.
+    """
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(engine)
+    if not inspector.has_table("auth_user"):
+        return
+    cols = {c["name"] for c in inspector.get_columns("auth_user")}
+    if "role" not in cols or "permissions" not in cols:
+        return  # sync_missing_columns hasn't added them yet this boot
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE auth_user SET role = 'field' WHERE role = 'enumerator'"))
+        conn.execute(text(
+            "UPDATE auth_user SET permissions = 'survey_entry,farmer_records,plots_map' "
+            "WHERE role = 'field' AND permissions IS NULL"
+        ))

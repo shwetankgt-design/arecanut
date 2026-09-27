@@ -10,6 +10,7 @@ import PlotsRegistry from "./pages/PlotsRegistry";
 import Login from "./pages/Login";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
+import UserManagement from "./pages/UserManagement";
 import { LangProvider } from "./LangContext";
 import { AuthProvider } from "./AuthContext";
 import ProtectedRoute from "./ProtectedRoute";
@@ -26,12 +27,21 @@ export default function App() {
             <Route element={<ProtectedRoute />}>
               <Route element={<Layout />}>
                 <Route path="/" element={<Dashboard />} />
-                <Route path="/entry" element={<DataEntryWizard />} />
-                <Route path="/farmers" element={<FarmerList />} />
-                <Route path="/farmers/:id" element={<SurveyView />} />
-                <Route path="/farmers/:id/plot-boundary" element={<PlotBoundaryCapture />} />
-                <Route path="/plots" element={<PlotsRegistry />} />
-                <Route path="/masters" element={<MasterData />} />
+                <Route element={<ProtectedRoute require="survey_entry" />}>
+                  <Route path="/entry" element={<DataEntryWizard />} />
+                </Route>
+                <Route element={<ProtectedRoute require="farmer_records" />}>
+                  <Route path="/farmers" element={<FarmerList />} />
+                  <Route path="/farmers/:id" element={<SurveyView />} />
+                </Route>
+                <Route element={<ProtectedRoute require="plots_map" />}>
+                  <Route path="/farmers/:id/plot-boundary" element={<PlotBoundaryCapture />} />
+                  <Route path="/plots" element={<PlotsRegistry />} />
+                </Route>
+                <Route element={<ProtectedRoute require="admin" />}>
+                  <Route path="/masters" element={<MasterData />} />
+                  <Route path="/users" element={<UserManagement />} />
+                </Route>
               </Route>
             </Route>
           </Routes>

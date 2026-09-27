@@ -1,8 +1,14 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 
-export default function ProtectedRoute() {
-  const { user, loading } = useAuth();
+interface Props {
+  /** Module key required to view this route, or "admin" for admin-only routes.
+   * Omit for routes any authenticated user may view. */
+  require?: string;
+}
+
+export default function ProtectedRoute({ require }: Props) {
+  const { user, loading, hasPermission } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -10,6 +16,12 @@ export default function ProtectedRoute() {
   }
   if (!user) {
     return <Navigate to="/login" state={{ from: location.pathname }} replace />;
+  }
+  if (require === "admin" && user.role !== "admin") {
+    return <Navigate to="/" replace />;
+  }
+  if (require && require !== "admin" && !hasPermission(require)) {
+    return <Navigate to="/" replace />;
   }
   return <Outlet />;
 }

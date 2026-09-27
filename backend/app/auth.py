@@ -82,6 +82,30 @@ def require_role(*roles: str):
     return dependency
 
 
+# Module keys an admin can grant to a "field" user from the User Management
+# screen — kept here (not in main.py) so auth.py has no import-order dependency
+# on main.py, but main.py re-exports this as the source of truth for the API
+# response the frontend renders checkboxes from.
+PERMISSION_MODULES = ["survey_entry", "farmer_records", "plots_map"]
+
+
+def require_permission(module: str):
+    """
+    An admin passes every permission check unconditionally — permissions are
+    only ever consulted for role="field". `module` must be one of
+    PERMISSION_MODULES; a field user without it gets a 403, not a 401 (they're
+    authenticated, just not authorized for this specific module).
+    """
+    def dependency(user: m.User = Depends(get_current_user)) -> m.User:
+        if user.role == "admin":
+            return user
+        granted = (user.permissions or "").split(",")
+        if module not in granted:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Missing permission: {module}")
+        return user
+    return dependency
+
+
 # ---------------- refresh tokens (opaque, rotated, DB-backed) ----------------
 
 def _hash_token(raw: str) -> str:

@@ -1,10 +1,11 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { api, getToken, setToken, getRefreshToken, setRefreshToken, AUTH_EVENT } from "./api";
 
-interface AuthUser {
+export interface AuthUser {
   username: string;
   full_name: string;
-  role: "admin" | "enumerator";
+  role: "admin" | "field";
+  permissions: string[];
 }
 
 interface AuthCtx {
@@ -12,9 +13,16 @@ interface AuthCtx {
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
+  hasPermission: (module: string) => boolean;
 }
 
-const Ctx = createContext<AuthCtx>({ user: null, loading: true, login: async () => {}, logout: () => {} });
+const Ctx = createContext<AuthCtx>({
+  user: null,
+  loading: true,
+  login: async () => {},
+  logout: () => {},
+  hasPermission: () => false,
+});
 
 const USER_CACHE_KEY = "gt_user_cache";
 
@@ -73,7 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const res = await api.login(username, password);
     setToken(res.access_token);
     setRefreshToken(res.refresh_token);
-    const u = { username: res.username, full_name: res.full_name, role: res.role };
+    const u = { username: res.username, full_name: res.full_name, role: res.role, permissions: res.permissions || [] };
     setUser(u);
     cacheUser(u);
   };
@@ -87,7 +95,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   };
 
-  return <Ctx.Provider value={{ user, loading, login, logout }}>{children}</Ctx.Provider>;
+  const hasPermission = (module: string) => !!user && (user.role === "admin" || user.permissions.includes(module));
+
+  return <Ctx.Provider value={{ user, loading, login, logout, hasPermission }}>{children}</Ctx.Provider>;
 }
 
 export function useAuth() {

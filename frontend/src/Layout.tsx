@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LayoutDashboard, ClipboardList, PlusCircle, Users, Languages, WifiOff, RefreshCw, LogOut, UserCircle, Map } from "lucide-react";
+import { LayoutDashboard, ClipboardList, PlusCircle, Users, Languages, WifiOff, RefreshCw, LogOut, UserCircle, Map, ShieldCheck } from "lucide-react";
 import { useLang } from "./LangContext";
 import { tr } from "./i18n";
 import { useAuth } from "./AuthContext";
@@ -53,13 +53,29 @@ function SyncStatus() {
 
 export default function Layout() {
   const { lang, toggle } = useLang();
-  const { user, logout } = useAuth();
+  const { user, logout, hasPermission } = useAuth();
   const navigate = useNavigate();
 
   const doLogout = () => {
     logout();
     navigate("/login");
   };
+
+  const isAdmin = user?.role === "admin";
+  const desktopNav = [
+    { to: "/", label: tr("navDashboard", lang), icon: LayoutDashboard, end: true, show: true },
+    { to: "/entry", label: tr("navNewSurveyEntry", lang), icon: PlusCircle, end: false, show: hasPermission("survey_entry") },
+    { to: "/farmers", label: tr("navFarmerRecords", lang), icon: Users, end: false, show: hasPermission("farmer_records") },
+    { to: "/plots", label: "Plots Map", icon: Map, end: false, show: hasPermission("plots_map") },
+    { to: "/masters", label: tr("navMasterData", lang), icon: ClipboardList, end: false, show: isAdmin },
+    { to: "/users", label: "Users", icon: ShieldCheck, end: false, show: isAdmin },
+  ].filter((item) => item.show);
+
+  const mobileNav = [
+    { to: "/", label: tr("navDashboard", lang), icon: LayoutDashboard, end: true, show: true },
+    { to: "/entry", label: tr("navNewEntry", lang), icon: PlusCircle, end: false, show: hasPermission("survey_entry") },
+    { to: "/farmers", label: tr("navFarmers", lang), icon: Users, end: false, show: hasPermission("farmer_records") },
+  ].filter((item) => item.show);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -96,13 +112,7 @@ export default function Layout() {
         </header>
 
         <nav className="hidden md:flex max-w-5xl mx-auto w-full px-4 gap-2 py-2.5 bg-white border-b border-[var(--gt-border)] shadow-sm">
-          {[
-            { to: "/", label: tr("navDashboard", lang), icon: LayoutDashboard, end: true },
-            { to: "/entry", label: tr("navNewSurveyEntry", lang), icon: PlusCircle, end: false },
-            { to: "/farmers", label: tr("navFarmerRecords", lang), icon: Users, end: false },
-            { to: "/plots", label: "Plots Map", icon: Map, end: false },
-            { to: "/masters", label: tr("navMasterData", lang), icon: ClipboardList, end: false },
-          ].map(({ to, label, icon: Icon, end }) => (
+          {desktopNav.map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
               to={to}
@@ -126,11 +136,7 @@ export default function Layout() {
       </main>
 
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-[var(--gt-border)] flex md:hidden z-20">
-        {[
-          { to: "/", label: tr("navDashboard", lang), icon: LayoutDashboard, end: true },
-          { to: "/entry", label: tr("navNewEntry", lang), icon: PlusCircle, end: false },
-          { to: "/farmers", label: tr("navFarmers", lang), icon: Users, end: false },
-        ].map(({ to, label, icon: Icon, end }) => (
+        {mobileNav.map(({ to, label, icon: Icon, end }) => (
           <NavLink
             key={to}
             to={to}

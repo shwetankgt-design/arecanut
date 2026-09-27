@@ -13,11 +13,16 @@ class User(Base):
     email = Column(String, unique=True, nullable=True, index=True)
     full_name = Column(String, nullable=False)
     password_hash = Column(String, nullable=False)
-    role = Column(String, nullable=False, default="enumerator")  # "admin" | "enumerator"
+    role = Column(String, nullable=False, default="field")  # "admin" | "field" — exactly one "admin" row may ever exist, enforced in main.py
+    # Comma-separated module keys (see PERMISSION_MODULES in main.py), meaningful
+    # only for role="field" — an admin implicitly has every module regardless of
+    # what's stored here. Set by an admin from the User Management screen.
+    permissions = Column(String, nullable=True, default="survey_entry,farmer_records,plots_map")
     is_active = Column(Boolean, default=True)
     failed_login_count = Column(Integer, nullable=False, default=0)
     locked_until = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_by_user_id = Column(Integer, ForeignKey("auth_user.id"), nullable=True)
 
 
 class PasswordResetToken(Base):

@@ -110,8 +110,8 @@ def seed():
     # --- Default login accounts (change passwords before real deployment) ---
     db.bulk_insert_mappings(m.User, [
         {"username": "admin", "email": "admin@arecanut-survey.local", "full_name": "Programme Admin", "password_hash": hash_password("Admin@2024Gt"), "role": "admin"},
-        {"username": "enumerator1", "email": "enumerator1@arecanut-survey.local", "full_name": "Enum. K. Prasad", "password_hash": hash_password("Field@2024Gt"), "role": "enumerator"},
-        {"username": "enumerator2", "email": "enumerator2@arecanut-survey.local", "full_name": "Enum. S. Nayak", "password_hash": hash_password("Field@2024Gt"), "role": "enumerator"},
+        {"username": "enumerator1", "email": "enumerator1@arecanut-survey.local", "full_name": "Enum. K. Prasad", "password_hash": hash_password("Field@2024Gt"), "role": "field", "permissions": "survey_entry,farmer_records,plots_map"},
+        {"username": "enumerator2", "email": "enumerator2@arecanut-survey.local", "full_name": "Enum. S. Nayak", "password_hash": hash_password("Field@2024Gt"), "role": "field", "permissions": "survey_entry,farmer_records,plots_map"},
     ])
     db.commit()
 

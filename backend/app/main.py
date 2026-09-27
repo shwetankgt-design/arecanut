@@ -13,16 +13,17 @@ from sqlalchemy import func
 import datetime
 
 from .config import get_settings
-from .db import Base, engine, get_db, sync_missing_columns
+from .db import Base, engine, get_db, sync_missing_columns, migrate_roles_and_permissions
 from . import models as m
 from .schemas import (
     SurveyIn, SurveyOut, FarmerLookup, LoginIn, TokenOut, UserOut, RefreshIn, LogoutIn,
     ForgotPasswordIn, ResetPasswordIn, PlotBoundaryIn, PlotBoundaryOut, PlotSummaryOut,
+    UserAdminOut, UserCreateIn, UserUpdateIn,
 )
 import json as _json
 from .auth import (
     verify_password, hash_password, validate_password_strength, create_access_token,
-    get_current_user, require_role,
+    get_current_user, require_role, require_permission, PERMISSION_MODULES,
     issue_refresh_token, rotate_refresh_token, revoke_refresh_token, revoke_all_refresh_tokens,
     register_failed_login, register_successful_login, is_locked, audit,
     issue_password_reset_token, consume_password_reset_token,
@@ -32,6 +33,7 @@ from .email_utils import send_password_reset_email
 settings = get_settings()
 Base.metadata.create_all(bind=engine)
 sync_missing_columns()
+migrate_roles_and_permissions()
 
 app = FastAPI(title="Arecanut Farmer Data Collection API", debug=not settings.is_production)
 
@@ -73,6 +75,10 @@ app.add_middleware(
 
 # ---------------- AUTH ----------------
 
+def _perm_list(user: m.User) -> list:
+    return [p for p in (user.permissions or "").split(",") if p]
+
+
 @app.post("/api/auth/login", response_model=TokenOut)
 @limiter.limit(settings.RATE_LIMIT_LOGIN)
 def login(request: Request, payload: LoginIn, db: Session = Depends(get_db)):
@@ -98,6 +104,7 @@ def login(request: Request, payload: LoginIn, db: Session = Depends(get_db)):
     return TokenOut(
         access_token=access_token, refresh_token=refresh_token,
         role=user.role, username=user.username, full_name=user.full_name,
+        permissions=_perm_list(user),
     )
 
 
@@ -109,6 +116,7 @@ def refresh(request: Request, payload: RefreshIn, db: Session = Depends(get_db))
     return TokenOut(
         access_token=access_token, refresh_token=new_refresh,
         role=user.role, username=user.username, full_name=user.full_name,
+        permissions=_perm_list(user),
     )
 
 
@@ -120,7 +128,104 @@ def logout(payload: LogoutIn, db: Session = Depends(get_db)):
 
 @app.get("/api/auth/me", response_model=UserOut)
 def me(user: m.User = Depends(get_current_user)):
-    return UserOut(username=user.username, full_name=user.full_name, role=user.role)
+    return UserOut(username=user.username, full_name=user.full_name, role=user.role, permissions=_perm_list(user))
+
+
+# ---------------- USER MANAGEMENT (admin only) ----------------
+# Exactly one "admin" account may ever exist — enforced in create_user and
+# update_user below, not just at seed time. Every mutation is audit-logged.
+
+@app.get("/api/users", response_model=list[UserAdminOut])
+def list_users(db: Session = Depends(get_db), admin: m.User = Depends(require_role("admin"))):
+    return db.query(m.User).order_by(m.User.created_at).all()
+
+
+@app.get("/api/users/permission-modules")
+def get_permission_modules(admin: m.User = Depends(require_role("admin"))):
+    """The fixed set of module keys the User Management screen renders as
+    checkboxes — a single source of truth shared with auth.PERMISSION_MODULES,
+    so a future module only needs to be added in one place."""
+    return PERMISSION_MODULES
+
+
+@app.post("/api/users", response_model=UserAdminOut)
+def create_user(
+    request: Request,
+    payload: UserCreateIn,
+    db: Session = Depends(get_db),
+    admin: m.User = Depends(require_role("admin")),
+):
+    if payload.role == "admin":
+        existing_admin = db.query(m.User).filter(m.User.role == "admin").first()
+        if existing_admin:
+            raise HTTPException(status_code=400, detail="An admin account already exists — only one admin is permitted.")
+
+    if db.query(m.User).filter(m.User.username == payload.username).first():
+        raise HTTPException(status_code=400, detail="That username is already taken.")
+
+    weakness = validate_password_strength(payload.password)
+    if weakness:
+        raise HTTPException(status_code=400, detail=weakness)
+
+    user = m.User(
+        username=payload.username,
+        full_name=payload.full_name,
+        email=payload.email,
+        password_hash=hash_password(payload.password),
+        role=payload.role,
+        permissions=",".join(payload.permissions) if payload.role == "field" else None,
+        created_by_user_id=admin.id,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    audit(db, request, "user_create", user=admin, resource=f"user:{user.id}", detail=f"created {user.username} (role={user.role})")
+    return user
+
+
+@app.put("/api/users/{user_id}", response_model=UserAdminOut)
+def update_user(
+    user_id: int,
+    request: Request,
+    payload: UserUpdateIn,
+    db: Session = Depends(get_db),
+    admin: m.User = Depends(require_role("admin")),
+):
+    user = db.query(m.User).get(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if payload.role is not None and payload.role != user.role:
+        if payload.role == "admin":
+            existing_admin = db.query(m.User).filter(m.User.role == "admin", m.User.id != user_id).first()
+            if existing_admin:
+                raise HTTPException(status_code=400, detail="An admin account already exists — only one admin is permitted.")
+        elif user.role == "admin":
+            raise HTTPException(status_code=400, detail="The sole admin account cannot be demoted — promote another user to admin first if you need to change this.")
+        user.role = payload.role
+
+    if user.role == "admin" and payload.is_active is False:
+        raise HTTPException(status_code=400, detail="The admin account cannot be deactivated.")
+
+    if payload.full_name is not None:
+        user.full_name = payload.full_name
+    if payload.email is not None:
+        user.email = payload.email
+    if payload.permissions is not None:
+        user.permissions = ",".join(payload.permissions)
+    if payload.is_active is not None:
+        user.is_active = payload.is_active
+    if payload.new_password:
+        weakness = validate_password_strength(payload.new_password)
+        if weakness:
+            raise HTTPException(status_code=400, detail=weakness)
+        user.password_hash = hash_password(payload.new_password)
+        revoke_all_refresh_tokens(db, user.id)  # force re-login everywhere on password change
+
+    db.commit()
+    db.refresh(user)
+    audit(db, request, "user_update", user=admin, resource=f"user:{user.id}", detail=f"updated {user.username}")
+    return user
 
 
 @app.post("/api/auth/forgot-password")
@@ -328,7 +433,7 @@ def list_surveys(
     limit: int = Query(500, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
-    user: m.User = Depends(get_current_user),
+    user: m.User = Depends(require_permission("farmer_records")),
 ):
     query = db.query(m.FarmerSurvey)
     local_vars = locals()
@@ -349,7 +454,7 @@ def list_surveys(
 
 
 @app.get("/api/surveys/{survey_id}", response_model=SurveyOut)
-def get_survey(survey_id: int, db: Session = Depends(get_db), user: m.User = Depends(get_current_user)):
+def get_survey(survey_id: int, db: Session = Depends(get_db), user: m.User = Depends(require_permission("farmer_records"))):
     s = db.query(m.FarmerSurvey).get(survey_id)
     if not s:
         raise HTTPException(status_code=404, detail="Survey not found")
@@ -395,7 +500,7 @@ def create_survey(
     request: Request,
     payload: SurveyIn,
     db: Session = Depends(get_db),
-    user: m.User = Depends(require_role("admin", "enumerator")),
+    user: m.User = Depends(require_permission("survey_entry")),
 ):
     # If this exact offline-queued submission was already synced (e.g. the app
     # retried after a flaky connection), return the existing row instead of a duplicate.
@@ -426,7 +531,7 @@ def update_survey(
     request: Request,
     payload: SurveyIn,
     db: Session = Depends(get_db),
-    user: m.User = Depends(require_role("admin", "enumerator")),
+    user: m.User = Depends(require_permission("farmer_records")),
 ):
     survey = db.query(m.FarmerSurvey).get(survey_id)
     if not survey:
@@ -466,7 +571,7 @@ def delete_survey(
 # never requires re-submitting — or re-validating — the entire 60+ field survey.
 
 @app.get("/api/surveys/{survey_id}/plot-boundary", response_model=Optional[PlotBoundaryOut])
-def get_plot_boundary(survey_id: int, db: Session = Depends(get_db), user: m.User = Depends(get_current_user)):
+def get_plot_boundary(survey_id: int, db: Session = Depends(get_db), user: m.User = Depends(require_permission("plots_map"))):
     survey = db.query(m.FarmerSurvey).get(survey_id)
     if not survey:
         raise HTTPException(status_code=404, detail="Survey not found")
@@ -487,7 +592,7 @@ def save_plot_boundary(
     payload: PlotBoundaryIn,
     request: Request,
     db: Session = Depends(get_db),
-    user: m.User = Depends(require_role("admin", "enumerator")),
+    user: m.User = Depends(require_permission("plots_map")),
 ):
     survey = db.query(m.FarmerSurvey).get(survey_id)
     if not survey:
@@ -515,7 +620,7 @@ def delete_plot_boundary(
     survey_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: m.User = Depends(require_role("admin", "enumerator")),
+    user: m.User = Depends(require_permission("plots_map")),
 ):
     survey = db.query(m.FarmerSurvey).get(survey_id)
     if not survey:
@@ -533,7 +638,7 @@ def delete_plot_boundary(
 def list_plots(
     only_with_boundary: bool = Query(False),
     db: Session = Depends(get_db),
-    user: m.User = Depends(get_current_user),
+    user: m.User = Depends(require_permission("plots_map")),
 ):
     """Lightweight feed for the read-only plots registry map — only the fields
     the map needs, not the full 60+ field survey record."""

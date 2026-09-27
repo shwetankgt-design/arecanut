@@ -70,7 +70,7 @@ Both commands must be run from the **repo root** (`D:\CLAUD\arecanut-app`), not 
 
 **Last updated**: 2026-09-27, end of v4 fix round (client retest file `Arecanut_ValueChain_DigitalPlatform_220926_TV2.xlsx`, 51 observations).
 
-**Latest APK delivered**: v3.0 (versionCode 3). **v4 APK not yet built** as of this update — backend + frontend v4 fixes are deployed to production, but the Android build step hasn't run yet this round. Do that next if the user asks, following section 1's APK build checklist, bumping to versionCode 4 / versionName "4.0".
+**Latest APK delivered**: v4.0 (versionCode 4) — built from the production web bundle with all v4 fixes below, signed, verified (`apksigner verify`), delivered to the user, and the version bump committed/pushed.
 
 **Backend and frontend are both deployed to production with all v4 fixes** (see Session Log below for the full list and verification notes). All 104 production survey records were re-validated against the new schema before and after deploy — zero regressions.
 
@@ -115,4 +115,4 @@ All other OBS items in the file were marked "Closed" by the client (already veri
 
 **Deploy sequence used**: backend deployed first (critical — includes the schema/model changes), verified all 104 production records still readable, then a temporary admin endpoint was used to backfill `MachineMaster.sort_order` in production (added, run once, removed, redeployed clean — same pattern as the FPC-Taluka import in the prior round), then frontend deployed. The Dashboard pie-chart bug was found only after the first frontend deploy (during post-deploy verification) and required a second frontend deploy to actually fix — so the very first `vercel --prod` frontend deploy of this round is NOT fully correct; only the final one is.
 
-**Not done this session**: the Android APK was not rebuilt. All fixes are live on the web app (and would be present in a native build too, since the Capacitor build is just a wrapped copy of the same web bundle) but no APK has been compiled since v3.0. Build v4 next if requested.
+**Follow-up (later same day)**: v4.0 APK (versionCode 4) was built, signed, verified, and delivered. Version bump committed and pushed separately (`cba4d8d`).

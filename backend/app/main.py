@@ -29,6 +29,7 @@ from .auth import (
     issue_password_reset_token, consume_password_reset_token,
 )
 from .email_utils import send_password_reset_email
+from .master_data import router as master_data_router
 
 settings = get_settings()
 Base.metadata.create_all(bind=engine)
@@ -71,6 +72,8 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+app.include_router(master_data_router)
 
 
 # ---------------- AUTH ----------------

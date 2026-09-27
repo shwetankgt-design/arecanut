@@ -90,7 +90,7 @@ All paths are relative to `BASE` (i.e. already include `/api` once mounted).
 | POST `/users` | create a user; rejects a 2nd `role=admin` |
 | PUT `/users/{id}` | update role/permissions/name/email/active/password; rejects demoting the sole admin, rejects a 2nd admin, force-revokes sessions on password change |
 
-### Master data (read: any authenticated user; the FRS-required admin CRUD screen is not yet built — see PROJECT_STATE.md)
+### Master data — read (any authenticated user; used to populate app dropdowns)
 | Method & Path |
 |---|
 | GET `/masters/districts` |
@@ -102,6 +102,24 @@ All paths are relative to `BASE` (i.e. already include `/api` once mounted).
 | GET `/masters/schemes` |
 | GET `/masters/machines` |
 | GET `/masters/options` |
+
+### Master data — admin CRUD (admin-only, generic registry-driven, `backend/app/master_data.py`)
+A single set of 4 routes serves **every** master table listed in `MASTER_TABLES`
+(currently District/Taluka/Village/Society/CropMaster/SchemeMaster/
+MachineMaster/OptionMaster) — the `{table}` path segment is one of that
+registry's keys (`district`, `taluka`, `village`, `society`, `crop`,
+`scheme`, `machine`, `option`). **Adding a future master table means adding
+one entry to `MASTER_TABLES`, not new endpoint code.**
+
+| Method & Path | Notes |
+|---|---|
+| GET `/admin/master-data/tables` | metadata for every registered table (label + field list) — the frontend (`MasterData.tsx`) renders its tabs and forms entirely from this, no hardcoded field lists |
+| GET `/admin/master-data/{table}` | list rows; a foreign-key field (e.g. Taluka's `district_id`) is returned with a resolved `<field>_display` name alongside the raw id |
+| POST `/admin/master-data/{table}` | create a row; validates required fields, uniqueness, and that any fk id actually exists |
+| PUT `/admin/master-data/{table}/{id}` | update a row; same validation |
+| DELETE `/admin/master-data/{table}/{id}` | delete a row; **blocked with a 400 if any other registered table's fk still points at it** (e.g. can't delete a District while a Taluka references it) — checked at the application level so behavior is identical on SQLite (dev) and Postgres (prod), which enforce foreign keys differently |
+
+All five actions are audit-logged (`master_data_create`/`master_data_update`/`master_data_delete`).
 
 ### Farmer / Survey data (permission-gated per above)
 | Method & Path | Required permission |

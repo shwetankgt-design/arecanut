@@ -126,4 +126,9 @@ export const api = {
   permissionModules: (): Promise<string[]> => req("/users/permission-modules"),
   createUser: (data: any) => req("/users", { method: "POST", body: JSON.stringify(data) }),
   updateUser: (id: number, data: any) => req(`/users/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  masterTables: () => req("/admin/master-data/tables"),
+  masterRows: (table: string) => req(`/admin/master-data/${table}`),
+  createMasterRow: (table: string, data: any) => req(`/admin/master-data/${table}`, { method: "POST", body: JSON.stringify(data) }),
+  updateMasterRow: (table: string, id: number, data: any) => req(`/admin/master-data/${table}/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteMasterRow: (table: string, id: number) => req(`/admin/master-data/${table}/${id}`, { method: "DELETE" }),
 };

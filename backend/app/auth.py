@@ -86,7 +86,7 @@ def require_role(*roles: str):
 # screen — kept here (not in main.py) so auth.py has no import-order dependency
 # on main.py, but main.py re-exports this as the source of truth for the API
 # response the frontend renders checkboxes from.
-PERMISSION_MODULES = ["survey_entry", "farmer_records", "plots_map"]
+PERMISSION_MODULES = ["survey_entry", "farmer_records", "plots_map", "fpo_consultation"]
 
 
 def require_permission(module: str):

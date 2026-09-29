@@ -11,6 +11,9 @@ import Login from "./pages/Login";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import UserManagement from "./pages/UserManagement";
+import EntryLanding from "./pages/EntryLanding";
+import FPOConsultationWizard from "./pages/FPOConsultationWizard";
+import FPOConsultationsList from "./pages/FPOConsultationsList";
 import { LangProvider } from "./LangContext";
 import { AuthProvider } from "./AuthContext";
 import ProtectedRoute from "./ProtectedRoute";
@@ -27,8 +30,15 @@ export default function App() {
             <Route element={<ProtectedRoute />}>
               <Route element={<Layout />}>
                 <Route path="/" element={<Dashboard />} />
+                <Route element={<ProtectedRoute requireAny={["survey_entry", "fpo_consultation"]} />}>
+                  <Route path="/entry" element={<EntryLanding />} />
+                </Route>
                 <Route element={<ProtectedRoute require="survey_entry" />}>
-                  <Route path="/entry" element={<DataEntryWizard />} />
+                  <Route path="/entry/farmer" element={<DataEntryWizard />} />
+                </Route>
+                <Route element={<ProtectedRoute require="fpo_consultation" />}>
+                  <Route path="/entry/fpo" element={<FPOConsultationWizard />} />
+                  <Route path="/fpo-consultations" element={<FPOConsultationsList />} />
                 </Route>
                 <Route element={<ProtectedRoute require="farmer_records" />}>
                   <Route path="/farmers" element={<FarmerList />} />

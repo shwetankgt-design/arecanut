@@ -64,7 +64,7 @@ export default function Layout() {
   const isAdmin = user?.role === "admin";
   const desktopNav = [
     { to: "/", label: tr("navDashboard", lang), icon: LayoutDashboard, end: true, show: true },
-    { to: "/entry", label: tr("navNewSurveyEntry", lang), icon: PlusCircle, end: false, show: hasPermission("survey_entry") },
+    { to: "/entry", label: tr("navNewEntry", lang), icon: PlusCircle, end: false, show: hasPermission("survey_entry") || hasPermission("fpo_consultation") },
     { to: "/farmers", label: tr("navFarmerRecords", lang), icon: Users, end: false, show: hasPermission("farmer_records") },
     { to: "/plots", label: tr("navPlotsMap", lang), icon: Map, end: false, show: hasPermission("plots_map") },
     { to: "/masters", label: tr("navMasterData", lang), icon: ClipboardList, end: false, show: isAdmin },
@@ -73,7 +73,7 @@ export default function Layout() {
 
   const mobileNav = [
     { to: "/", label: tr("navDashboard", lang), icon: LayoutDashboard, end: true, show: true },
-    { to: "/entry", label: tr("navNewEntry", lang), icon: PlusCircle, end: false, show: hasPermission("survey_entry") },
+    { to: "/entry", label: tr("navNewEntry", lang), icon: PlusCircle, end: false, show: hasPermission("survey_entry") || hasPermission("fpo_consultation") },
     { to: "/farmers", label: tr("navFarmers", lang), icon: Users, end: false, show: hasPermission("farmer_records") },
   ].filter((item) => item.show);
 

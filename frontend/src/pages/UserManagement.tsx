@@ -18,6 +18,7 @@ const MODULE_LABELS: Record<string, string> = {
   survey_entry: "New Survey Entry",
   farmer_records: "Farmer Records (view & edit)",
   plots_map: "Plots & Map",
+  fpo_consultation: "FPO Consultation",
 };
 
 function emptyForm() {

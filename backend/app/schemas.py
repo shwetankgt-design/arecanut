@@ -38,7 +38,10 @@ class UserOut(BaseModel):
     permissions: List[str] = []
 
 
-PERMISSION_MODULE_VALUES = ("survey_entry", "farmer_records", "plots_map")
+# Single source of truth lives in auth.py (PERMISSION_MODULES) — imported here
+# rather than duplicated, after a duplication bug shipped where this list fell
+# out of sync with auth.py's and rejected a newly added permission module.
+from .auth import PERMISSION_MODULES as PERMISSION_MODULE_VALUES
 
 
 class UserAdminOut(BaseModel):
@@ -426,3 +429,217 @@ class PlotSummaryOut(BaseModel):
     plot_boundary_area_acres: Optional[float] = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+
+# ---------------- FPO CONSULTATION MODULE ----------------
+# Every field optional by design — this schema backs a draft-safe, step-wise-saved
+# wizard (see FPOConsultation model docstring in models.py), so a PUT can carry
+# just the handful of fields the current step collected, not the whole form.
+
+class FPOConsultationIn(BaseModel):
+    interview_date: Optional[str] = None
+    respondent_name: Optional[str] = None
+    respondent_designation: Optional[str] = None
+    respondent_mobile: Optional[str] = None
+    others_present: Optional[str] = None
+    interview_location: Optional[str] = None
+    geo_lat: Optional[float] = None
+    geo_long: Optional[float] = None
+    fpo_name: Optional[str] = None
+    cin: Optional[str] = None
+    incorporation_date: Optional[str] = None
+    fpo_age_years: Optional[float] = None
+    legal_form: Optional[str] = None
+    district: Optional[str] = None
+    taluk: Optional[str] = None
+    villages_covered: Optional[int] = None
+    implementing_agency: Optional[str] = None
+    cbbo_name: Optional[str] = None
+    promoting_agency: Optional[str] = None
+    promoting_agency_other: Optional[str] = None
+    primary_crop: Optional[str] = None
+    secondary_crop: Optional[str] = None
+    women_members: Optional[int] = None
+    women_on_board: Optional[int] = None
+    turnover_fy24: Optional[float] = None
+    turnover_fy25: Optional[float] = None
+    turnover_fy26: Optional[float] = None
+    profit_fy24: Optional[float] = None
+    profit_fy25: Optional[float] = None
+    profit_fy26: Optional[float] = None
+    q1_board_size: Optional[str] = None
+    q1_board_women_count: Optional[int] = None
+    q2_board_experience: Optional[str] = None
+    q2_board_members_running_business: Optional[int] = None
+    q2_business_nature: Optional[str] = None
+    q2_business_nature_other: Optional[str] = None
+    q3_minutes_records: Optional[str] = None
+    q3_meetings_per_year: Optional[int] = None
+    q3_meeting_frequency: Optional[str] = None
+    last_agm_date: Optional[str] = None
+    shareholder_attendance_pct: Optional[float] = None
+    q4_has_ceo: Optional[str] = None
+    q4a_ceo_experience: Optional[str] = None
+    q4b_ceo_years: Optional[float] = None
+    q4b_ceo_engagement: Optional[str] = None
+    q4c_ceo_trade_or_admin: Optional[str] = None
+    q5_has_accountant: Optional[str] = None
+    q5a_accountant_experience: Optional[str] = None
+    q5b_accountant_years: Optional[float] = None
+    q5b_accountant_engagement: Optional[str] = None
+    q5c_software_used: Optional[str] = None
+    q5c_software_other: Optional[str] = None
+    q6_second_line_mgmt: Optional[str] = None
+    q6_total_staff: Optional[int] = None
+    q6_field_staff: Optional[int] = None
+    q7_registered_members: Optional[str] = None
+    q7_actively_transacting: Optional[str] = None
+    q8_promoting_agency_role: Optional[str] = None
+    bds_providers: Optional[str] = None
+    q10_govt_scheme_converged: Optional[str] = None
+    govt_schemes: Optional[str] = None
+    licences: Optional[str] = None
+    q11_deals_in: Optional[str] = None
+    q12_price_risk: Optional[str] = None
+    q13_external_lending: Optional[str] = None
+    q14_trading_platforms: Optional[str] = None
+    q15_accounts_mis: Optional[str] = None
+    q16_stock_insured: Optional[str] = None
+    q17_credit_repayment_history: Optional[str] = None
+    q18_books_update_freq: Optional[str] = None
+    q19_stock_reconciliation_freq: Optional[str] = None
+    q20_cash_revenue_share: Optional[str] = None
+    q21_traceability_records: Optional[str] = None
+    q22_total_annual_revenue: Optional[str] = None
+    q23_gross_profit_margin: Optional[str] = None
+    q24_profitability_trend: Optional[str] = None
+    q25_paid_up_capital: Optional[float] = None
+    q26_revenue_share_arecanut_pct: Optional[float] = None
+    q27_audited_statements: Optional[str] = None
+    q27_documents_available: Optional[str] = None
+    q27_documents_other: Optional[str] = None
+    q28_avg_procurement_value_per_cycle: Optional[float] = None
+    q29_procurement_cycles_per_season: Optional[int] = None
+    q30_peak_procurement_value: Optional[float] = None
+    q31_max_value_awaiting_settlement: Optional[float] = None
+    q32_settlement_days: Optional[float] = None
+    q33_active_farmers_band: Optional[str] = None
+    q33_actual_farmers: Optional[int] = None
+    q33_women_farmers: Optional[int] = None
+    q34_aggregate_last_fy_band: Optional[str] = None
+    q34_actual_mt: Optional[float] = None
+    q34_value_inr_lakh: Optional[float] = None
+    volume_split_form: Optional[str] = None
+    volume_split_grade: Optional[str] = None
+    produce_channels: Optional[str] = None
+    q36a_why_channels: Optional[str] = None
+    q37_additional_supply_band: Optional[str] = None
+    q37_actual_mt_per_year: Optional[float] = None
+    q37a_volume_source: Optional[str] = None
+    q38_supply_stability: Optional[str] = None
+    q38_peak_months: Optional[str] = None
+    q38_lean_months: Optional[str] = None
+    q39_biggest_constraint: Optional[str] = None
+    q39_notes: Optional[str] = None
+    q40_quality_check_method: Optional[str] = None
+    q40_moisture_meter_available: Optional[str] = None
+    q40_moisture_meter_units: Optional[int] = None
+    q40_moisture_meter_last_calibrated: Optional[str] = None
+    q41_rejection_rate_band: Optional[str] = None
+    q41_actual_pct: Optional[float] = None
+    q41a_reason1: Optional[str] = None
+    q41a_reason2: Optional[str] = None
+    quality_practices: Optional[str] = None
+    q42a_uncoloured_lots: Optional[str] = None
+    q43_meet_spec: Optional[str] = None
+    q43_what_required: Optional[str] = None
+    q44_infrastructure: Optional[str] = None
+    q44_collection_centres_count: Optional[int] = None
+    q44_additional_infra_needed: Optional[str] = None
+    common_facilities: Optional[str] = None
+    q46_chc_machines_rates: Optional[str] = None
+    storage_logistics: Optional[str] = None
+    q48_delivery_reliability: Optional[str] = None
+    q48_evidence_sighted: Optional[str] = None
+    q49_price_determination: Optional[str] = None
+    q49_price_revision_frequency: Optional[str] = None
+    q49_reference_mandi: Optional[str] = None
+    unit_economics: Optional[str] = None
+    q51_payment_speed: Optional[str] = None
+    q51_payment_mode: Optional[str] = None
+    q51_share_paid_digitally_pct: Optional[float] = None
+    q51_paid_upfront_pct: Optional[float] = None
+    q52_upfront_funds_source: Optional[str] = None
+    q53_biggest_financial_constraint: Optional[str] = None
+    q54_estimated_loss_value: Optional[float] = None
+    q54_estimated_loss_mt: Optional[float] = None
+    credit_facilities: Optional[str] = None
+    credit_history: Optional[str] = None
+    q55b_warehouse_receipt_used: Optional[str] = None
+    q55c_loan_rejected: Optional[str] = None
+    q55c_rejection_count: Optional[int] = None
+    q55c_rejection_lender: Optional[str] = None
+    q55c_rejection_year: Optional[str] = None
+    q55c_rejection_reason: Optional[str] = None
+    q55c_rejection_reason_other: Optional[str] = None
+    credit_gap: Optional[str] = None
+    q56_lender_limit_indicated: Optional[str] = None
+    q56_reason: Optional[str] = None
+    q56_reason_other: Optional[str] = None
+    q57_working_capital_needed: Optional[float] = None
+    q57_proposed_source: Optional[str] = None
+    q58_buy_or_commission: Optional[str] = None
+    q58_handling_fee: Optional[float] = None
+    q59_collateral_type: Optional[str] = None
+    q59_collateral_other: Optional[str] = None
+    q60_pledged_produce_share_pct: Optional[float] = None
+    q61_collateral_effort: Optional[str] = None
+    q62_max_interest_rate: Optional[float] = None
+    q63_loan_tenure: Optional[str] = None
+    q64_trader_preference_reasons: Optional[str] = None
+    q64_reasons_other: Optional[str] = None
+    q65_what_would_shift_farmers: Optional[str] = None
+    services_to_members: Optional[str] = None
+    q67_intercrops: Optional[str] = None
+    q67_intercrops_other: Optional[str] = None
+    q67_fpo_support: Optional[str] = None
+    q67_intercropping_share_pct: Optional[float] = None
+    q68_farmer_challenges: Optional[str] = None
+    q68_challenges_other: Optional[str] = None
+    buyers: Optional[str] = None
+    q69_committed_volume_mt: Optional[float] = None
+    q69_uncommitted_volume_mt: Optional[float] = None
+    q70_buyer_requirements: Optional[str] = None
+    q70_top_three: Optional[str] = None
+    q71_trial_consignment: Optional[str] = None
+    q71_trial_volume_mt: Optional[float] = None
+    q71_earliest_month: Optional[str] = None
+    q72_board_resolution: Optional[str] = None
+    signature: Optional[str] = None
+    signature_date: Optional[str] = None
+
+
+class FPOConsultationOut(FPOConsultationIn):
+    id: int
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    submitted_at: Optional[datetime] = None
+    created_by_user_id: Optional[int] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class FPOConsultationListItem(BaseModel):
+    """Lightweight row for the drafts/submissions list screen — avoids shipping
+    all 180 fields just to render a resumable list."""
+    id: int
+    status: str
+    fpo_name: Optional[str] = None
+    district: Optional[str] = None
+    respondent_name: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

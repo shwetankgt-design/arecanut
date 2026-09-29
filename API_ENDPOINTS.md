@@ -52,6 +52,12 @@ that also fails does the app force a re-login (`AUTH_EVENT`).
   - `survey_entry` — New Survey Entry
   - `farmer_records` — Farmer Records (view & edit)
   - `plots_map` — Plots & Map
+  - `fpo_consultation` — FPO Consultation (see its own section below)
+- **Single source of truth**: `PERMISSION_MODULES` lives only in `backend/app/auth.py`.
+  `backend/app/schemas.py::PERMISSION_MODULE_VALUES` imports it rather than
+  redeclaring it — an earlier duplicate literal list there fell out of sync
+  when this module was added and rejected the new permission with a 422.
+  Never hardcode the module list a second time anywhere.
 - Enforcement: FastAPI dependency `require_permission(module)` on each
   protected route; the frontend mirrors this with `ProtectedRoute require=...`
   and by filtering the nav in `Layout.tsx`, but the **server-side check is
@@ -140,3 +146,48 @@ All five actions are audit-logged (`master_data_create`/`master_data_update`/`ma
 |---|
 | GET `/dashboard/kpis` |
 | GET `/dashboard/yield-benchmarks` |
+
+### FPO Consultation module (`fpo_consultation` permission, `backend/app/fpo_consultation.py`)
+A second large questionnaire (72 questions, 6 sections, ~180 fields) administered
+by the same field team, gated by its own grantable permission independent of
+`survey_entry`/`farmer_records`/`plots_map` — an admin can give a user FPO
+Consultation access without also giving them the farmer survey, and vice versa.
+
+**Draft-first, unlike the farmer survey**: every field on `FPOConsultationIn`
+is optional. The frontend wizard (`frontend/src/pages/FPOConsultationWizard.tsx`)
+`PUT`s to the server after every Next/Back/Save-Draft click with only the
+fields touched so far — closing the app mid-form loses nothing beyond the
+current step's unsaved keystrokes. `status` (`"draft"` → `"submitted"`) is
+set by the client when the user finishes the last step; it is advisory
+bookkeeping, not a validation gate — there is no "all fields required" check
+anywhere in this module, by explicit design (the client's requirement was
+resumable step-wise saving, not farmer-survey-style all-or-nothing validation).
+Once `status="submitted"`, `PUT` is rejected (400) — a submitted consultation
+is immutable.
+
+Repeating tables in the source questionnaire (BDS providers, licences, credit
+facilities, buyer terms, etc.) are stored as JSON text in single columns
+(`bds_providers`, `licences`, `govt_schemes`, `credit_history`, ...) — same
+pattern as `FarmerSurvey.mech_rental_rate_inr_hr` elsewhere in this codebase —
+rather than child tables, since they're always read/written as a whole unit
+per consultation, never queried across consultations by row.
+
+| Method & Path | Notes |
+|---|---|
+| GET `/fpo-consultations` | list (optionally `?status=draft` or `?status=submitted`); lightweight `FPOConsultationListItem` shape, not all ~180 fields |
+| GET `/fpo-consultations/{id}` | full record |
+| POST `/fpo-consultations` | create a draft; accepts a partial payload (only the fields the first step collected) |
+| PUT `/fpo-consultations/{id}` | partial update — only the fields present in the payload are touched, so a later step's save never wipes an earlier step's data; rejected (400) once `status="submitted"` |
+| POST `/fpo-consultations/{id}/submit` | marks `status="submitted"`, sets `submitted_at` |
+| DELETE `/fpo-consultations/{id}` | admin-only |
+
+All five actions are audit-logged (`fpo_consultation_create`/`update`/`submit`/`delete`).
+
+**Frontend routing**: `/entry` is now a landing page (`EntryLanding.tsx`)
+choosing between "Farmer Survey" (`/entry/farmer`, the original wizard,
+`survey_entry` permission) and "FPO Consultation" (`/entry/fpo?id=<id>`,
+`fpo_consultation` permission) — `ProtectedRoute` gained a `requireAny`
+prop (passes if the user has *any* of the listed modules) so the landing
+page itself is reachable by a user who has either permission, while each
+destination page still gates on its own specific one. `/fpo-consultations`
+lists drafts (resumable) and submitted consultations.

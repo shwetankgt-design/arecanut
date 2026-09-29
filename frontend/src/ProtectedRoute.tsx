@@ -5,9 +5,13 @@ interface Props {
   /** Module key required to view this route, or "admin" for admin-only routes.
    * Omit for routes any authenticated user may view. */
   require?: string;
+  /** Alternative to `require`: passes if the user has ANY of these modules —
+   * for a route (like the New Entry landing page) that's a front door to
+   * several independently-grantable modules. */
+  requireAny?: string[];
 }
 
-export default function ProtectedRoute({ require }: Props) {
+export default function ProtectedRoute({ require, requireAny }: Props) {
   const { user, loading, hasPermission } = useAuth();
   const location = useLocation();
 
@@ -21,6 +25,9 @@ export default function ProtectedRoute({ require }: Props) {
     return <Navigate to="/" replace />;
   }
   if (require && require !== "admin" && !hasPermission(require)) {
+    return <Navigate to="/" replace />;
+  }
+  if (requireAny && !requireAny.some((m) => hasPermission(m))) {
     return <Navigate to="/" replace />;
   }
   return <Outlet />;

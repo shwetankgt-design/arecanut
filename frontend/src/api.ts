@@ -131,4 +131,10 @@ export const api = {
   createMasterRow: (table: string, data: any) => req(`/admin/master-data/${table}`, { method: "POST", body: JSON.stringify(data) }),
   updateMasterRow: (table: string, id: number, data: any) => req(`/admin/master-data/${table}/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteMasterRow: (table: string, id: number) => req(`/admin/master-data/${table}/${id}`, { method: "DELETE" }),
+  listFpoConsultations: (status?: string) => req(`/fpo-consultations${status ? `?status=${status}` : ""}`),
+  getFpoConsultation: (id: number) => req(`/fpo-consultations/${id}`),
+  createFpoConsultation: (data: any) => req("/fpo-consultations", { method: "POST", body: JSON.stringify(data) }),
+  updateFpoConsultation: (id: number, data: any) => req(`/fpo-consultations/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  submitFpoConsultation: (id: number) => req(`/fpo-consultations/${id}/submit`, { method: "POST" }),
+  deleteFpoConsultation: (id: number) => req(`/fpo-consultations/${id}`, { method: "DELETE" }),
 };

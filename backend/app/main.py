@@ -30,6 +30,7 @@ from .auth import (
 )
 from .email_utils import send_password_reset_email
 from .master_data import router as master_data_router
+from .fpo_consultation import router as fpo_consultation_router
 
 settings = get_settings()
 Base.metadata.create_all(bind=engine)
@@ -74,6 +75,7 @@ app.add_middleware(
 )
 
 app.include_router(master_data_router)
+app.include_router(fpo_consultation_router)
 
 
 # ---------------- AUTH ----------------

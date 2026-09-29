@@ -1,3 +1,4 @@
+import { t, type Lang } from "../i18n";
 // Canonical, platform-independent plot boundary shape + helpers.
 // Every capture method (draw / Excel / GPS) and every consumer (registry map,
 // area display, backend payload) uses exactly this shape — never redefined
@@ -68,6 +69,8 @@ export function validateBoundary(points: PlotBoundary): BoundaryValidation {
   return { valid: true };
 }
 
-export function formatArea(acres: number): string {
+export function formatArea(acres: number, lang: Lang = "en"): string {
+  // Kannada has no separate singular form here, so only English pluralises.
+  if (lang === "kn") return `${acres.toFixed(2)} ${t("acres", lang)}`;
   return `${acres.toFixed(2)} acre${acres === 1 ? "" : "s"}`;
 }

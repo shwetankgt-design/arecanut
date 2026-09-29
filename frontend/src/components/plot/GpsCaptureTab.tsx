@@ -3,6 +3,8 @@ import { Geolocation } from "@capacitor/geolocation";
 import { Capacitor } from "@capacitor/core";
 import { MapPin, Undo2, AlertCircle, Navigation } from "lucide-react";
 import type { LatLngPoint, PlotBoundary } from "../../lib/plotBoundary";
+import { t } from "../../i18n";
+import { useLang } from "../../LangContext";
 
 interface Props {
   points: PlotBoundary;
@@ -13,6 +15,7 @@ interface Props {
 // normalizes the underlying platform API (browser Geolocation on web, native
 // GPS on Android), matching the cross-platform contract in the spec §6.
 export default function GpsCaptureTab({ points, onChange }: Props) {
+  const { lang } = useLang();
   const [accuracyByIndex, setAccuracyByIndex] = useState<Record<number, number>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,7 +66,7 @@ export default function GpsCaptureTab({ points, onChange }: Props) {
   return (
     <div className="flex flex-col gap-4">
       <div className="text-sm text-[var(--gt-text-muted)]">
-        Walk to each corner of the plot and tap "Capture Current Point" there. Capture at least 3 points, in order, to form the boundary.
+        {t("Walk to each corner of the plot and tap \"Capture Current Point\" there. Capture at least 3 points, in order, to form the boundary.", lang)}
       </div>
 
       {error && (
@@ -74,10 +77,10 @@ export default function GpsCaptureTab({ points, onChange }: Props) {
 
       <div className="flex gap-2">
         <button className="gt-btn-primary flex items-center gap-2 flex-1 justify-center" onClick={capture} disabled={busy}>
-          <Navigation size={16} className={busy ? "animate-pulse" : ""} /> {busy ? "Getting location…" : "Capture Current Point"}
+          <Navigation size={16} className={busy ? "animate-pulse" : ""} /> {t(busy ? "Capturing…" : "Capture Current Point", lang)}
         </button>
         <button className="gt-btn-secondary flex items-center gap-1.5" onClick={undo} disabled={points.length === 0}>
-          <Undo2 size={16} /> Undo
+          <Undo2 size={16} /> {t("Undo", lang)}
         </button>
       </div>
 

@@ -10,7 +10,7 @@ import { Geolocation } from "@capacitor/geolocation";
 import { Camera as CapacitorCamera, CameraResultType, CameraSource } from "@capacitor/camera";
 import { Capacitor } from "@capacitor/core";
 import { api } from "../api";
-import { trDistrict, trTaluka, trVillage, tr } from "../i18n";
+import { trDistrict, trTaluka, trVillage, tr, t } from "../i18n";
 import { useLang } from "../LangContext";
 import { queueSurvey } from "../offlineQueue";
 import DrawMapTab from "../components/plot/DrawMapTab";
@@ -294,15 +294,22 @@ const NONNEGATIVE_NUMERIC_FIELDS = [
 // another field's value — e.g. "Required only if Bank Account = Yes" — so the
 // requirement doesn't look arbitrary or feel broken when it appears/disappears
 // as the user changes an earlier answer.
+// Translation happens inside these four shared components rather than at each of
+// the ~230 call sites: every label, hint, validation message, section title and
+// option value in the wizard flows through one of them, so wrapping them here
+// translates the whole form. Option VALUES stay English everywhere (only the
+// displayed text is translated) because English is the canonical form stored in
+// the DB and sent to the API.
 function Field({ label, required, hint, error, children }: any) {
+  const { lang } = useLang();
   return (
     <div className="mb-4">
-      <label className="gt-label">{label} {required && <span className="text-[var(--gt-danger)]">*</span>}</label>
-      {hint && !error && <div className="text-[11px] text-[var(--gt-text-muted)] mb-1">{hint}</div>}
+      <label className="gt-label">{typeof label === "string" ? t(label, lang) : label} {required && <span className="text-[var(--gt-danger)]">*</span>}</label>
+      {hint && !error && <div className="text-[11px] text-[var(--gt-text-muted)] mb-1">{t(hint, lang)}</div>}
       <div className={error ? "field-error" : ""}>{children}</div>
       {error && (
         <div className="flex items-center gap-1 text-xs text-[var(--gt-danger)] mt-1">
-          <AlertCircle size={12} /> {error}
+          <AlertCircle size={12} /> {t(error, lang)}
         </div>
       )}
     </div>
@@ -310,20 +317,22 @@ function Field({ label, required, hint, error, children }: any) {
 }
 
 function YesNo({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const { lang } = useLang();
   return (
     <div className="gt-toggle-yn">
-      <button type="button" className={value === "Yes" ? "active-yes" : ""} onClick={() => onChange("Yes")}>Yes</button>
-      <button type="button" className={value === "No" ? "active-no" : ""} onClick={() => onChange("No")}>No</button>
+      <button type="button" className={value === "Yes" ? "active-yes" : ""} onClick={() => onChange("Yes")}>{t("Yes", lang)}</button>
+      <button type="button" className={value === "No" ? "active-no" : ""} onClick={() => onChange("No")}>{t("No", lang)}</button>
     </div>
   );
 }
 
 function MultiChip({ options, value, onToggle }: { options: string[]; value: string[]; onToggle: (v: string) => void }) {
+  const { lang } = useLang();
   return (
     <div className="flex flex-wrap gap-2">
       {options.map((opt) => (
         <div key={opt} className={`gt-chip ${value.includes(opt) ? "active" : ""}`} onClick={() => onToggle(opt)}>
-          {value.includes(opt) && <CheckCircle2 size={14} />} {opt}
+          {value.includes(opt) && <CheckCircle2 size={14} />} {t(opt, lang)}
         </div>
       ))}
     </div>
@@ -333,11 +342,12 @@ function MultiChip({ options, value, onToggle }: { options: string[]; value: str
 // Groups a merged sub-module (its own original field-set) inside a broader tab,
 // so several of the original 17 modules can share one tab without losing their identity.
 function SubSection({ icon: Icon, title, first, children }: { icon: any; title: string; first?: boolean; children: React.ReactNode }) {
+  const { lang } = useLang();
   return (
     <div className={`${first ? "" : "border-t border-[var(--gt-border)] pt-4 mt-4"}`}>
       <div className="flex items-center gap-2 mb-3">
         <Icon size={16} className="text-[var(--gt-purple)]" />
-        <span className="text-sm font-semibold text-[var(--gt-purple-dark)]">{title}</span>
+        <span className="text-sm font-semibold text-[var(--gt-purple-dark)]">{t(title, lang)}</span>
       </div>
       {children}
     </div>
@@ -510,9 +520,9 @@ export default function DataEntryWizard() {
         gender: res.gender, age: res.age, guardian_name: res.guardian_name || "",
         district: res.district || f.district, taluka: res.taluka || f.taluka, village: res.village || f.village,
       }));
-      setLookupMsg("Farmer found and details auto-filled from Registration Portal.");
+      setLookupMsg(t("Farmer found and details auto-filled from Registration Portal.", lang));
     } catch (e: any) {
-      setLookupMsg(e.message || "Farmer not found.");
+      setLookupMsg(e.message || t("Farmer not found.", lang));
     }
   };
 
@@ -595,7 +605,7 @@ export default function DataEntryWizard() {
       // A cancelled camera/picker isn't an error worth surfacing.
       const msg = String(e?.message || "");
       if (!/cancel/i.test(msg)) {
-        setPhotoError(msg || "Could not access the camera. Check camera/photo permissions and try again.");
+        setPhotoError(msg || t("Could not access the camera. Check camera/photo permissions and try again.", lang));
       }
     } finally {
       setPhotoBusy(false);
@@ -613,12 +623,12 @@ export default function DataEntryWizard() {
     if (Object.keys(validationErrors).length > 0) {
       setErrors(validationErrors);
       jumpToFirstError(validationErrors);
-      setSubmitError(`Please fix ${Object.keys(validationErrors).length} error(s) before submitting.`);
+      setSubmitError(t("Please fix {n} error(s) before submitting.", lang).replace("{n}", String(Object.keys(validationErrors).length)));
       return;
     }
     if (!plotValidation.valid) {
       setStep(STEPS.length - 1);
-      setSubmitError("Plot boundary is mandatory — capture it via Draw on Map, Excel upload, or GPS walk before submitting.");
+      setSubmitError(t("Plot boundary is mandatory — capture it via Draw on Map, Excel upload, or GPS walk before submitting.", lang));
       return;
     }
 
@@ -706,7 +716,7 @@ export default function DataEntryWizard() {
     const blockingErrors = Object.fromEntries(Object.entries(stepErrors).filter(([f]) => (FIELD_STEP[f] ?? 0) === step));
     setErrors((prev) => ({ ...prev, ...stepErrors }));
     if (Object.keys(blockingErrors).length > 0) {
-      setSubmitError(`Please fix ${Object.keys(blockingErrors).length} error(s) on this tab before continuing.`);
+      setSubmitError(t("Please fix {n} error(s) on this tab before continuing.", lang).replace("{n}", String(Object.keys(blockingErrors).length)));
       return;
     }
     setSubmitError(null);
@@ -727,9 +737,9 @@ export default function DataEntryWizard() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-[var(--gt-purple-dark)]">{editId ? "Edit Farmer Survey" : "New Farmer Survey"}</h1>
+        <h1 className="text-xl font-bold text-[var(--gt-purple-dark)]">{t(editId ? "Edit Farmer Survey" : "New Farmer Survey", lang)}</h1>
         <span className="text-xs font-medium text-[var(--gt-text-muted)] bg-[#F1EBF7] px-2.5 py-1 rounded-full whitespace-nowrap">
-          {step + 1} of {STEPS.length}
+          {step + 1} {t("of", lang)} {STEPS.length}
         </span>
       </div>
 
@@ -738,8 +748,8 @@ export default function DataEntryWizard() {
           <CurrentIcon size={22} />
         </div>
         <div>
-          <div className="text-base font-semibold text-[var(--gt-purple-dark)] leading-tight">{STEPS[step].label}</div>
-          <p className="text-sm text-[var(--gt-text-muted)] leading-tight">{STEPS[step].hint}</p>
+          <div className="text-base font-semibold text-[var(--gt-purple-dark)] leading-tight">{t(STEPS[step].label, lang)}</div>
+          <p className="text-sm text-[var(--gt-text-muted)] leading-tight">{t(STEPS[step].hint, lang)}</p>
         </div>
       </div>
 
@@ -757,7 +767,7 @@ export default function DataEntryWizard() {
               key={s.label}
               type="button"
               onClick={() => setStep(i)}
-              title={s.label}
+              title={t(s.label, lang)}
               className={`shrink-0 flex items-center gap-1.5 text-[12px] font-medium px-3 py-2 rounded-full border whitespace-nowrap transition-colors ${
                 isActive
                   ? "gt-gradient text-white border-transparent shadow-sm"
@@ -767,7 +777,7 @@ export default function DataEntryWizard() {
               }`}
             >
               {isDone ? <Check size={14} /> : <Icon size={14} />}
-              {s.label}
+              {t(s.label, lang)}
             </button>
           );
         })}
@@ -785,8 +795,8 @@ export default function DataEntryWizard() {
             <SubSection icon={UserSearch} title="Farmer Link" first>
               <Field label="Search Farmer (Aadhaar / Mobile / Farmer ID)">
                 <div className="flex gap-2">
-                  <input className="gt-input" placeholder="e.g. 9876543210 or NCCF/KA/0007" value={lookupQ} onChange={(e) => setLookupQ(e.target.value)} />
-                  <button className="gt-btn-primary flex items-center gap-1.5 px-4" onClick={doLookup}><Search size={16} /> Fetch</button>
+                  <input className="gt-input" placeholder={t("e.g. 9876543210 or NCCF/KA/0007", lang)} value={lookupQ} onChange={(e) => setLookupQ(e.target.value)} />
+                  <button className="gt-btn-primary flex items-center gap-1.5 px-4" onClick={doLookup}><Search size={16} /> {t("Fetch", lang)}</button>
                 </div>
                 {lookupMsg && <div className="text-xs mt-2 text-[var(--gt-purple-dark)]">{lookupMsg}</div>}
               </Field>
@@ -796,29 +806,29 @@ export default function DataEntryWizard() {
                   <div className="flex gap-2">
                     <input className="gt-input" maxLength={10} value={form.mobile_no} onChange={(e) => set("mobile_no", e.target.value.replace(/\D/g, ""))} />
                     {form.mobile_verified ? (
-                      <span className="shrink-0 flex items-center gap-1 text-xs text-[var(--gt-success)] font-medium px-2"><CheckCircle2 size={14} /> Verified</span>
+                      <span className="shrink-0 flex items-center gap-1 text-xs text-[var(--gt-success)] font-medium px-2"><CheckCircle2 size={14} /> {t("Verified", lang)}</span>
                     ) : otpStatus === "sent" ? (
                       <>
-                        <input className="gt-input w-20 shrink-0" placeholder="OTP" value={otpCode} onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ""))} />
-                        <button type="button" className="gt-btn-secondary shrink-0 px-3" disabled={otpCode.length < 4} onClick={verifyOtp}>Verify</button>
+                        <input className="gt-input w-20 shrink-0" placeholder={t("OTP", lang)} value={otpCode} onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ""))} />
+                        <button type="button" className="gt-btn-secondary shrink-0 px-3" disabled={otpCode.length < 4} onClick={verifyOtp}>{t("Verify", lang)}</button>
                       </>
                     ) : (
-                      <button type="button" className="gt-btn-secondary shrink-0 px-3" disabled={!/^\d{10}$/.test(form.mobile_no)} onClick={sendOtp}>Send OTP</button>
+                      <button type="button" className="gt-btn-secondary shrink-0 px-3" disabled={!/^\d{10}$/.test(form.mobile_no)} onClick={sendOtp}>{t("Send OTP", lang)}</button>
                     )}
                   </div>
                   {otpStatus === "sent" && !form.mobile_verified && (
-                    <div className="text-[11px] text-[var(--gt-text-muted)] mt-1">Enter any 4+ digit code to simulate verification — SMS delivery isn't wired up yet.</div>
+                    <div className="text-[11px] text-[var(--gt-text-muted)] mt-1">{t("Enter any 4+ digit code to simulate verification — SMS delivery isn't wired up yet.", lang)}</div>
                   )}
                 </Field>
                 <Field label="Gender" required>
                   <select className="gt-input" value={form.gender} onChange={(e) => set("gender", e.target.value)}>
-                    <option>Male</option><option>Female</option>
+                    <option value="Male">{t("Male", lang)}</option><option value="Female">{t("Female", lang)}</option>
                   </select>
                 </Field>
                 <Field label="Age" required error={errors.age}><input type="number" className="gt-input" value={form.age} onChange={(e) => setNonNeg("age", e.target.value)} /></Field>
                 <Field label="Father / Husband Name"><input className="gt-input" value={form.guardian_name} onChange={(e) => set("guardian_name", e.target.value)} /></Field>
-                <Field label="Farmer Unique ID" hint={form.farmer_id ? undefined : "Auto-generated by the system once this survey is submitted."}>
-                  <input className="gt-input bg-[#F6F4F9]" readOnly value={form.farmer_id || "Will be assigned on submit"} />
+                <Field label="Farmer Unique ID" hint={form.farmer_id ? undefined : t("Auto-generated by the system once this survey is submitted.", lang)}>
+                  <input className="gt-input bg-[#F6F4F9]" readOnly value={form.farmer_id || t("Will be assigned on submit", lang)} />
                 </Field>
               </div>
             </SubSection>
@@ -827,8 +837,8 @@ export default function DataEntryWizard() {
               <div className="flex items-center justify-between mb-4">
                 <div className="text-sm text-[var(--gt-text-muted)]">
                   {villageLocked
-                    ? "Village is locked once selected — use \"Change Village\" if it was picked in error."
-                    : "Start typing the village name — Taluka and District fill in automatically."}
+                    ? t("Village is locked once selected — use \"Change Village\" if it was picked in error.", lang)
+                    : t("Start typing the village name — Taluka and District fill in automatically.", lang)}
                 </div>
                 {villageLocked && (
                   <button
@@ -841,7 +851,7 @@ export default function DataEntryWizard() {
                       }
                     }}
                   >
-                    Change Village
+                    {t("Change Village", lang)}
                   </button>
                 )}
               </div>
@@ -875,17 +885,17 @@ export default function DataEntryWizard() {
                               </button>
                             ))
                           ) : (
-                            <div className="px-3 py-2 text-sm text-[var(--gt-text-muted)]">No matching village found.</div>
+                            <div className="px-3 py-2 text-sm text-[var(--gt-text-muted)]">{t("No matching village found.", lang)}</div>
                           )}
                         </div>
                       )}
                     </div>
                   )}
                 </Field>
-                <Field label={`${tr("taluka", lang)} (auto-filled)`} error={errors.taluka}>
+                <Field label={`${tr("taluka", lang)} ${t("(auto-filled)", lang)}`} error={errors.taluka}>
                   <input className="gt-input bg-[#F6F4F9]" readOnly value={form.taluka ? trTaluka(form.taluka, lang) : "—"} />
                 </Field>
-                <Field label={`${tr("district", lang)} (auto-filled)`} error={errors.district}>
+                <Field label={`${tr("district", lang)} ${t("(auto-filled)", lang)}`} error={errors.district}>
                   <input className="gt-input bg-[#F6F4F9]" readOnly value={form.district ? trDistrict(form.district, lang) : "—"} />
                 </Field>
                 <Field label={tr("state", lang)}>
@@ -897,20 +907,20 @@ export default function DataEntryWizard() {
             <SubSection icon={Handshake} title="Society / FPC Linkage">
               <Field label="Associated with any Society or FPC" required><YesNo value={form.society_assoc} onChange={(v) => set("society_assoc", v)} /></Field>
               {form.society_assoc === "Yes" && !form.taluka && (
-                <div className="text-xs text-[var(--gt-text-muted)] mt-1">Select the Taluka above first to see FPCs mapped to that area.</div>
+                <div className="text-xs text-[var(--gt-text-muted)] mt-1">{t("Select the Taluka above first to see FPCs mapped to that area.", lang)}</div>
               )}
               {form.society_assoc === "Yes" && (
                 <div className="grid md:grid-cols-2 gap-x-4">
                   <Field label="Society / FPC Name" required error={errors.society_name} hint="Required because 'Associated with any Society or FPC' = Yes">
                     <select className="gt-input" value={form.society_name} onChange={(e) => set("society_name", e.target.value)} disabled={!form.taluka}>
-                      <option value="">{form.taluka ? "Select" : "Select a village first"}</option>
-                      {societies.map((s) => <option key={s} value={s}>{s}</option>)}
+                      <option value="">{form.taluka ? t("Select", lang) : t("Select a village first", lang)}</option>
+                      {societies.map((s) => <option key={s} value={s}>{t(s, lang)}</option>)}
                     </select>
                     <div className="text-[11px] text-[var(--gt-text-muted)] mt-1">Showing FPCs mapped to {form.taluka || "the selected taluka"}, plus State-level societies.</div>
                   </Field>
                   <Field label="Associated Since (Year)" required error={errors.society_since_year} hint="Required because 'Associated with any Society or FPC' = Yes">
                     <select className="gt-input" value={form.society_since_year} onChange={(e) => set("society_since_year", e.target.value)}>
-                      <option value="">Select</option>
+                      <option value="">{t("Select", lang)}</option>
                       {YEAR_OPTIONS.map((y) => <option key={y} value={y}>{y}</option>)}
                     </select>
                   </Field>
@@ -980,9 +990,9 @@ export default function DataEntryWizard() {
                 <Field label="Total Annual Cost of Cultivation (INR)" required error={errors.cultivation_cost_inr}><input max="100000000" type="number" step="1" className="gt-input" value={form.cultivation_cost_inr} onChange={(e) => setNonNeg("cultivation_cost_inr", e.target.value)} /></Field>
                 <Field label="Sale Type" required>
                   <select className="gt-input" value={form.sale_type} onChange={(e) => set("sale_type", e.target.value)}>
-                    <option>Sold raw areca</option>
-                    <option>Sold processed areca</option>
-                    <option>Sold both raw and processed areca</option>
+                    <option value="Sold raw areca">{t("Sold raw areca", lang)}</option>
+                    <option value="Sold processed areca">{t("Sold processed areca", lang)}</option>
+                    <option value="Sold both raw and processed areca">{t("Sold both raw and processed areca", lang)}</option>
                   </select>
                 </Field>
                 {(form.sale_type === "Sold raw areca" || form.sale_type === "Sold both raw and processed areca") && (
@@ -1005,16 +1015,16 @@ export default function DataEntryWizard() {
                 )}
                 <Field label="Marketing Channel" required>
                   <select className="gt-input" value={form.marketing_channel} onChange={(e) => set("marketing_channel", e.target.value)}>
-                    {(opts.marketing_channel || []).map((o) => <option key={o}>{o}</option>)}
+                    {(opts.marketing_channel || []).map((o) => <option key={o} value={o}>{t(o, lang)}</option>)}
                   </select>
                 </Field>
                 {form.marketing_channel === "FPC/FPO" && (
                   <Field label="Name of FPC/FPO" error={errors.marketing_channel_detail} hint="Optional — fill in if known.">
                     <select className="gt-input" value={form.marketing_channel_detail} onChange={(e) => set("marketing_channel_detail", e.target.value)} disabled={!form.taluka}>
-                      <option value="">{form.taluka ? "Select" : "Select a village first"}</option>
-                      {societies.map((s) => <option key={s} value={s}>{s}</option>)}
+                      <option value="">{form.taluka ? t("Select", lang) : t("Select a village first", lang)}</option>
+                      {societies.map((s) => <option key={s} value={s}>{t(s, lang)}</option>)}
                     </select>
-                    <div className="text-[11px] text-[var(--gt-text-muted)] mt-1">Same taluka-scoped FPC list as Society/FPC Linkage.</div>
+                    <div className="text-[11px] text-[var(--gt-text-muted)] mt-1">{t("Same taluka-scoped FPC list as Society/FPC Linkage.", lang)}</div>
                   </Field>
                 )}
                 {(form.marketing_channel === "Cooperative Society" || form.marketing_channel === "APMC") && (
@@ -1030,15 +1040,15 @@ export default function DataEntryWizard() {
                 <Field label="Rate Realised (INR/kg)" required error={errors.rate_inr_per_kg}><input type="number" className="gt-input" value={form.rate_inr_per_kg} onChange={(e) => setNonNeg("rate_inr_per_kg", e.target.value)} /></Field>
                 <Field label="Month of Sale" required>
                   <select className="gt-input" value={form.sale_month} onChange={(e) => set("sale_month", e.target.value)}>
-                    {MONTHS.map((mo) => <option key={mo}>{mo}</option>)}
+                    {MONTHS.map((mo) => <option key={mo} value={mo}>{t(mo, lang)}</option>)}
                   </select>
                 </Field>
                 <div className="md:col-span-2 gt-card p-3 bg-[#F1EBF7] border-none">
-                  <div className="text-xs text-[var(--gt-text-muted)]">Auto-calculated Total Income from Areca</div>
+                  <div className="text-xs text-[var(--gt-text-muted)]">{t("Auto-calculated Total Income from Areca", lang)}</div>
                   {hasIncomeInputs ? (
                     <div className="text-xl font-bold text-[var(--gt-purple-dark)]">₹ {computedIncome.toLocaleString("en-IN")}</div>
                   ) : (
-                    <div className="text-sm text-[var(--gt-text-muted)]">Enter Yield and Rate Realised to calculate.</div>
+                    <div className="text-sm text-[var(--gt-text-muted)]">{t("Enter Yield and Rate Realised to calculate.", lang)}</div>
                   )}
                 </div>
               </div>
@@ -1049,8 +1059,8 @@ export default function DataEntryWizard() {
                 <Field label="Areca Stored - Duration (Months)"><input type="number" className="gt-input" value={form.storage_duration_months} onChange={(e) => setNonNeg("storage_duration_months", e.target.value)} /></Field>
                 <Field label="Storage Source">
                   <select className="gt-input" value={form.storage_source} onChange={(e) => set("storage_source", e.target.value)}>
-                    <option value="">Select</option>
-                    {(opts.storage_source || []).map((o) => <option key={o}>{o}</option>)}
+                    <option value="">{t("Select", lang)}</option>
+                    {(opts.storage_source || []).map((o) => <option key={o} value={o}>{t(o, lang)}</option>)}
                   </select>
                 </Field>
                 {form.storage_source && (
@@ -1070,9 +1080,9 @@ export default function DataEntryWizard() {
                 )}
                 <Field label="Logistics Provider">
                   <select className="gt-input" value={form.logistics_provider} onChange={(e) => set("logistics_provider", e.target.value)}>
-                    <option value="">Select</option>
-                    {(opts.logistics_provider || []).map((o) => <option key={o}>{o}</option>)}
-                    <option value="Any Other">Any Other</option>
+                    <option value="">{t("Select", lang)}</option>
+                    {(opts.logistics_provider || []).map((o) => <option key={o} value={o}>{t(o, lang)}</option>)}
+                    <option value="Any Other">{t("Any Other", lang)}</option>
                   </select>
                 </Field>
                 {form.logistics_provider === "Any Other" && (
@@ -1174,7 +1184,7 @@ export default function DataEntryWizard() {
               <div className="grid md:grid-cols-2 gap-x-4">
                 <Field label="Source of Input Purchase" required>
                   <select className="gt-input" value={form.input_source} onChange={(e) => set("input_source", e.target.value)}>
-                    {(opts.input_source || []).map((o) => <option key={o}>{o}</option>)}
+                    {(opts.input_source || []).map((o) => <option key={o} value={o}>{t(o, lang)}</option>)}
                   </select>
                 </Field>
                 {form.input_source === "Other" && (
@@ -1185,8 +1195,8 @@ export default function DataEntryWizard() {
                 <Field label="Distance of Input Source (Km)" error={errors.input_distance_km}><input type="number" min="0" className="gt-input" value={form.input_distance_km} onChange={(e) => setNonNeg("input_distance_km", e.target.value)} /></Field>
                 <Field label="Challenges in Input Purchase">
                   <select className="gt-input" value={form.input_challenges} onChange={(e) => set("input_challenges", e.target.value)}>
-                    <option value="">Select</option>
-                    {(opts.input_challenges || []).map((o) => <option key={o}>{o}</option>)}
+                    <option value="">{t("Select", lang)}</option>
+                    {(opts.input_challenges || []).map((o) => <option key={o} value={o}>{t(o, lang)}</option>)}
                   </select>
                 </Field>
                 {form.input_challenges === "Other" && (
@@ -1219,11 +1229,11 @@ export default function DataEntryWizard() {
               <div className="grid md:grid-cols-2 gap-x-4">
                 <Field label="Total Household Income" required error={errors.total_household_income_bracket}>
                   <select className="gt-input" value={form.total_household_income_bracket} onChange={(e) => set("total_household_income_bracket", e.target.value)}>
-                    <option value="">Select</option>
-                    <option value="<10000">Less than ₹10,000</option>
-                    <option value="10000-1L">₹10,000 to ₹1 Lakh</option>
-                    <option value="1L-10L">₹1 Lakh to ₹10 Lakh</option>
-                    <option value=">10L">Greater than ₹10 Lakh</option>
+                    <option value="">{t("Select", lang)}</option>
+                    <option value="<10000">{t("Less than ₹10,000", lang)}</option>
+                    <option value="10000-1L">{t("₹10,000 to ₹1 Lakh", lang)}</option>
+                    <option value="1L-10L">{t("₹1 Lakh to ₹10 Lakh", lang)}</option>
+                    <option value=">10L">{t("Greater than ₹10 Lakh", lang)}</option>
                   </select>
                 </Field>
                 <Field label="Non-Farm Income Source(s)"><MultiChip options={opts.non_farm_income_source || []} value={form.non_farm_income_source} onToggle={(v) => toggleMulti("non_farm_income_source", v)} /></Field>
@@ -1251,8 +1261,8 @@ export default function DataEntryWizard() {
                   <>
                     <Field label="Source" required error={errors.credit_source} hint="Required because Credit Linkage = Yes">
                       <select className="gt-input" value={form.credit_source} onChange={(e) => set("credit_source", e.target.value)}>
-                        <option value="">Select</option>
-                        {(opts.credit_source || []).map((o) => <option key={o}>{o}</option>)}
+                        <option value="">{t("Select", lang)}</option>
+                        {(opts.credit_source || []).map((o) => <option key={o} value={o}>{t(o, lang)}</option>)}
                       </select>
                     </Field>
                     {form.credit_source === "Other" && (
@@ -1270,15 +1280,15 @@ export default function DataEntryWizard() {
                   <>
                     <Field label="Outcome of Previous Loan Application" required error={errors.loan_application_outcome} hint="Required because Credit Linkage = No">
                       <select className="gt-input" value={form.loan_application_outcome} onChange={(e) => set("loan_application_outcome", e.target.value)}>
-                        <option value="">Select</option>
-                        <option>Approved</option><option>Partially Approved</option><option>Pending</option><option>Rejected</option>
+                        <option value="">{t("Select", lang)}</option>
+                        <option value="Approved">{t("Approved", lang)}</option><option value="Partially Approved">{t("Partially Approved", lang)}</option><option value="Pending">{t("Pending", lang)}</option><option value="Rejected">{t("Rejected", lang)}</option>
                       </select>
                     </Field>
                     {form.loan_application_outcome === "Rejected" && (
                       <Field label="Reason for Rejection" required error={errors.loan_rejection_reason} hint="Required because the previous loan application was Rejected">
                         <select className="gt-input" value={form.loan_rejection_reason} onChange={(e) => set("loan_rejection_reason", e.target.value)}>
-                          <option value="">Select</option>
-                          {(opts.loan_rejection_reason || []).map((o) => <option key={o}>{o}</option>)}
+                          <option value="">{t("Select", lang)}</option>
+                          {(opts.loan_rejection_reason || []).map((o) => <option key={o} value={o}>{t(o, lang)}</option>)}
                         </select>
                       </Field>
                     )}
@@ -1306,7 +1316,7 @@ export default function DataEntryWizard() {
                       {/* A native <datalist> is unreliable on Android Chrome (often
                           renders no suggestions at all) — a plain text field plus
                           tappable suggestion chips works consistently everywhere. */}
-                      <input className="gt-input" value={form.scheme_name} onChange={(e) => set("scheme_name", e.target.value)} placeholder="Type or pick a scheme below" />
+                      <input className="gt-input" value={form.scheme_name} onChange={(e) => set("scheme_name", e.target.value)} placeholder={t("Type or pick a scheme below", lang)} />
                       {schemes.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mt-1.5">
                           {schemes.map((s) => (
@@ -1361,10 +1371,10 @@ export default function DataEntryWizard() {
             <div className="grid md:grid-cols-2 gap-x-4 mb-2">
               <Field label="Geo-location">
                 {geoStatus === "idle" && (
-                  <button type="button" className="gt-btn-secondary flex items-center gap-1.5 w-fit" onClick={captureGeo}><MapPin size={16} /> Detect My Location</button>
+                  <button type="button" className="gt-btn-secondary flex items-center gap-1.5 w-fit" onClick={captureGeo}><MapPin size={16} /> {t("Detect My Location", lang)}</button>
                 )}
                 {geoStatus === "locating" && (
-                  <div className="text-xs flex items-center gap-1.5 text-[var(--gt-text-muted)]"><MapPin size={14} className="animate-pulse" /> Fetching device GPS…</div>
+                  <div className="text-xs flex items-center gap-1.5 text-[var(--gt-text-muted)]"><MapPin size={14} className="animate-pulse" /> {t("Fetching device GPS…", lang)}</div>
                 )}
                 {geoStatus === "done" && form.geo_lat && (
                   <div className="text-xs flex items-center gap-1.5 text-[var(--gt-success)] font-medium">
@@ -1373,20 +1383,20 @@ export default function DataEntryWizard() {
                 )}
                 {geoStatus === "error" && (
                   <div className="flex flex-col gap-2">
-                    <div className="text-xs text-[var(--gt-danger)]">{geoError || "Could not access device GPS. Enable location and retry."}</div>
+                    <div className="text-xs text-[var(--gt-danger)]">{t(geoError || "Could not access device GPS. Enable location and retry.", lang)}</div>
                     <div className="text-[11px] text-[var(--gt-text-muted)]">
-                      If your browser previously blocked location for this site, "Retry" won't help — clear it from the browser's site settings (tap the lock icon next to the address bar → Permissions → Location) and try again.
+                      {t("If your browser previously blocked location for this site, \"Retry\" won't help — clear it from the browser's site settings (tap the lock icon next to the address bar → Permissions → Location) and try again.", lang)}
                     </div>
-                    <button type="button" className="gt-btn-secondary flex items-center gap-1.5 w-fit" onClick={captureGeo}><MapPin size={16} /> Retry GPS</button>
+                    <button type="button" className="gt-btn-secondary flex items-center gap-1.5 w-fit" onClick={captureGeo}><MapPin size={16} /> {t("Retry GPS", lang)}</button>
                   </div>
                 )}
                 {geoStatus === "done" && (
-                  <button type="button" className="text-xs text-[var(--gt-purple)] underline mt-1.5" onClick={captureGeo}>Refresh location</button>
+                  <button type="button" className="text-xs text-[var(--gt-purple)] underline mt-1.5" onClick={captureGeo}>{t("Refresh location", lang)}</button>
                 )}
               </Field>
               <Field label="Field Photo (geo-tagged)">
                 <button type="button" className="gt-btn-secondary flex items-center gap-1.5" onClick={attachPhoto} disabled={photoBusy}>
-                  <Camera size={16} /> {photoBusy ? "Opening camera…" : form.field_photo ? "Retake Photo" : "Attach Photo"}
+                  <Camera size={16} /> {t(photoBusy ? "Opening camera…" : form.field_photo ? "Retake Photo" : "Attach Photo", lang)}
                 </button>
                 {photoError && (
                   <div className="flex items-center gap-2 bg-red-50 border border-[var(--gt-danger)]/30 text-[var(--gt-danger)] text-xs rounded-lg px-3 py-2 mt-2">
@@ -1402,7 +1412,7 @@ export default function DataEntryWizard() {
                       ) : (
                         <div className="text-[var(--gt-danger)]">No GPS fix yet — tap "Detect My Location" above so this photo is geo-tagged.</div>
                       )}
-                      <button type="button" className="text-[var(--gt-purple)] underline mt-1" onClick={() => set("field_photo", "")}>Remove photo</button>
+                      <button type="button" className="text-[var(--gt-purple)] underline mt-1" onClick={() => set("field_photo", "")}>{t("Remove photo", lang)}</button>
                     </div>
                   </div>
                 )}
@@ -1410,9 +1420,9 @@ export default function DataEntryWizard() {
             </div>
 
             <div className="mb-2">
-              <div className="font-semibold text-sm mb-1 text-[var(--gt-purple-dark)]">Plot Boundary <span className="text-[var(--gt-danger)]">*</span></div>
+              <div className="font-semibold text-sm mb-1 text-[var(--gt-purple-dark)]">{t("Plot Boundary", lang)} <span className="text-[var(--gt-danger)]">*</span></div>
               <p className="text-xs text-[var(--gt-text-muted)] mb-3">
-                Map the exact plot boundary — draw it on the map, upload GPS points from Excel/CSV, or walk the boundary with the device GPS. This is required before the survey can be submitted; it can still be edited later from the farmer's record.
+                {t("Map the exact plot boundary — draw it on the map, upload GPS points from Excel/CSV, or walk the boundary with the device GPS. This is required before the survey can be submitted; it can still be edited later from the farmer's record.", lang)}
               </p>
 
               <div className="flex gap-2 overflow-x-auto pb-1 mb-3">
@@ -1427,16 +1437,16 @@ export default function DataEntryWizard() {
                         : "bg-white text-[var(--gt-text-muted)] border-[var(--gt-border)]"
                     }`}
                   >
-                    <Icon size={15} /> {label}
+                    <Icon size={15} /> {t(label, lang)}
                   </button>
                 ))}
               </div>
 
               <div className="gt-card p-3 flex items-center gap-4 text-sm mb-3">
-                <span><b>{plotPoints.length}</b> vertices</span>
-                <span className="text-[var(--gt-purple-dark)] font-semibold">{formatArea(plotArea)}</span>
+                <span><b>{plotPoints.length}</b> {t("vertices", lang)}</span>
+                <span className="text-[var(--gt-purple-dark)] font-semibold">{formatArea(plotArea, lang)}</span>
                 {form.areca_area_acres && plotPoints.length >= 3 && (
-                  <span className="text-xs text-[var(--gt-text-muted)]">Declared areca area: {form.areca_area_acres} acres</span>
+                  <span className="text-xs text-[var(--gt-text-muted)]">{t("Declared areca area:", lang)} {form.areca_area_acres} {t("acres", lang)}</span>
                 )}
               </div>
 
@@ -1454,14 +1464,14 @@ export default function DataEntryWizard() {
             </div>
 
             <div className="gt-card p-4 bg-[#F1EBF7] border-none">
-              <div className="font-semibold text-sm mb-2 text-[var(--gt-purple-dark)]">Review Summary</div>
+              <div className="font-semibold text-sm mb-2 text-[var(--gt-purple-dark)]">{t("Review Summary", lang)}</div>
               <div className="grid md:grid-cols-2 gap-1 text-sm">
-                <div>Farmer: <b>{form.farmer_name}</b> ({form.farmer_id || "ID assigned on submit"})</div>
-                <div>Location: <b>{form.village}, {form.taluka}, {form.district}</b></div>
-                <div>Areca Area: <b>{form.areca_area_acres} acres</b>, {form.areca_plant_count} plants</div>
-                <div>Yield: <b>{form.yield_raw_qtl} Qtl</b></div>
-                <div>Sale: <b>{form.sale_type}</b> via {form.marketing_channel}</div>
-                <div>Net Income: <b className="text-[var(--gt-purple-dark)]">₹{computedIncome.toLocaleString("en-IN")}</b></div>
+                <div>{t("Farmer:", lang)} <b>{form.farmer_name}</b> ({form.farmer_id || t("ID assigned on submit", lang)})</div>
+                <div>{t("Location:", lang)} <b>{form.village}, {form.taluka}, {form.district}</b></div>
+                <div>{t("Areca Area:", lang)} <b>{form.areca_area_acres} {t("acres", lang)}</b>, {form.areca_plant_count} {t("plants", lang)}</div>
+                <div>{t("Yield:", lang)} <b>{form.yield_raw_qtl} {t("Qtl", lang)}</b></div>
+                <div>{t("Sale:", lang)} <b>{t(form.sale_type, lang)}</b> {t("via", lang)} {t(form.marketing_channel, lang)}</div>
+                <div>{t("Net Income:", lang)} <b className="text-[var(--gt-purple-dark)]">₹{computedIncome.toLocaleString("en-IN")}</b></div>
               </div>
             </div>
           </>
@@ -1470,15 +1480,15 @@ export default function DataEntryWizard() {
 
       <div className="flex justify-between gap-3">
         <button className="gt-btn-secondary flex items-center gap-1" onClick={back}>
-          <ChevronLeft size={16} /> {step === 0 ? "Cancel" : "Back"}
+          <ChevronLeft size={16} /> {t(step === 0 ? "Cancel" : "Back", lang)}
         </button>
         {step < STEPS.length - 1 ? (
           <button className="gt-btn-primary flex items-center gap-1" onClick={next}>
-            Next <ChevronRight size={16} />
+            {t("Next", lang)} <ChevronRight size={16} />
           </button>
         ) : (
           <button className="gt-btn-primary flex items-center gap-1.5" onClick={submit} disabled={submitting}>
-            <CheckCircle2 size={16} /> {submitting ? "Submitting…" : "Submit Survey"}
+            <CheckCircle2 size={16} /> {t(submitting ? "Submitting…" : "Submit Survey", lang)}
           </button>
         )}
       </div>

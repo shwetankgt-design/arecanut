@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Undo2, RotateCcw, CheckCircle2, AlertCircle, MapPinned } from "lucide-react";
 import { loadGoogleMaps, isGoogleMapsConfigured } from "../../lib/googleMaps";
+import { t } from "../../i18n";
+import { useLang } from "../../LangContext";
 import type { PlotBoundary } from "../../lib/plotBoundary";
 
 interface Props {
@@ -14,6 +16,7 @@ const DEFAULT_CENTER = { lat: 13.9299, lng: 75.5681 }; // Shivamogga, Karnataka 
 // WebView too, so this same component already covers "web + the installed
 // Android app" per the v1 stack decision — no react-native-maps split needed).
 export default function DrawMapTab({ points, onChange }: Props) {
+  const { lang } = useLang();
   const mapDivRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
   const polygonRef = useRef<google.maps.Polygon | null>(null);
@@ -183,7 +186,7 @@ export default function DrawMapTab({ points, onChange }: Props) {
       <div className="text-sm text-[var(--gt-text-muted)]">
         {editable
           ? "Drag a corner to move it, drag a midpoint to add a vertex, or alt/right-click a corner to delete it."
-          : "Tap the map to place each corner of the plot, in order. At least 3 points are needed."}
+          : t("Tap the map to place each corner of the plot, in order. At least 3 points are needed.", lang)}
       </div>
 
       {status === "error" && (
@@ -213,15 +216,15 @@ export default function DrawMapTab({ points, onChange }: Props) {
           {!editable ? (
             <>
               <button className="gt-btn-secondary flex items-center gap-1.5" onClick={undo} disabled={points.length === 0}>
-                <Undo2 size={15} /> Undo
+                <Undo2 size={15} /> {t("Undo", lang)}
               </button>
               <button className="gt-btn-primary flex items-center gap-1.5" onClick={finishBoundary} disabled={points.length < 3}>
-                <CheckCircle2 size={15} /> Finish Boundary
+                <CheckCircle2 size={15} /> {t("Finish Boundary", lang)}
               </button>
             </>
           ) : (
             <button className="gt-btn-secondary flex items-center gap-1.5" onClick={redraw}>
-              <RotateCcw size={15} /> Redraw
+              <RotateCcw size={15} /> {t("Redraw", lang)}
             </button>
           )}
         </div>

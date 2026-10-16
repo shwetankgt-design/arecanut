@@ -39,7 +39,15 @@ sync_missing_columns()
 sync_nullable_columns()
 migrate_roles_and_permissions()
 
-app = FastAPI(title="Arecanut Farmer Data Collection API", debug=not settings.is_production)
+app = FastAPI(
+    title="Arecanut Farmer Data Collection API",
+    description="REST API for the Karnataka arecanut farmer survey app — auth, "
+    "master data, farmer surveys, plot boundaries, FPO consultations, and the "
+    "admin dashboard. Authenticate with POST /api/auth/login, then click "
+    "'Authorize' above and paste the returned access_token as a Bearer token.",
+    version="1.0.0",
+    debug=not settings.is_production,
+)
 
 # ---------------- security middleware ----------------
 
@@ -58,7 +66,20 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "geolocation=(self), camera=(self), microphone=()"
-        response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+        if request.url.path in ("/docs", "/redoc"):
+            # Swagger UI / ReDoc load their JS+CSS from jsdelivr's CDN by
+            # default — the site-wide "default-src 'none'" CSP below would
+            # otherwise silently block those assets and render a blank page.
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'none'; frame-ancestors 'none'; "
+                "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "img-src 'self' data: https://fastapi.tiangolo.com; "
+                "font-src 'self' data:; "
+                "connect-src 'self'"
+            )
+        else:
+            response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
         if request.url.scheme == "https":
             response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
         return response
@@ -86,7 +107,7 @@ def _perm_list(user: m.User) -> list:
     return [p for p in (user.permissions or "").split(",") if p]
 
 
-@app.post("/api/auth/login", response_model=TokenOut)
+@app.post("/api/auth/login", response_model=TokenOut, tags=["Auth"])
 @limiter.limit(settings.RATE_LIMIT_LOGIN)
 def login(request: Request, payload: LoginIn, db: Session = Depends(get_db)):
     user = db.query(m.User).filter(m.User.username == payload.username).first()
@@ -115,7 +136,7 @@ def login(request: Request, payload: LoginIn, db: Session = Depends(get_db)):
     )
 
 
-@app.post("/api/auth/refresh", response_model=TokenOut)
+@app.post("/api/auth/refresh", response_model=TokenOut, tags=["Auth"])
 @limiter.limit(settings.RATE_LIMIT_LOGIN)
 def refresh(request: Request, payload: RefreshIn, db: Session = Depends(get_db)):
     user, new_refresh = rotate_refresh_token(db, payload.refresh_token)
@@ -127,13 +148,13 @@ def refresh(request: Request, payload: RefreshIn, db: Session = Depends(get_db))
     )
 
 
-@app.post("/api/auth/logout")
+@app.post("/api/auth/logout", tags=["Auth"])
 def logout(payload: LogoutIn, db: Session = Depends(get_db)):
     revoke_refresh_token(db, payload.refresh_token)
     return {"ok": True}
 
 
-@app.get("/api/auth/me", response_model=UserOut)
+@app.get("/api/auth/me", response_model=UserOut, tags=["Auth"])
 def me(user: m.User = Depends(get_current_user)):
     return UserOut(username=user.username, full_name=user.full_name, role=user.role, permissions=_perm_list(user))
 
@@ -142,12 +163,12 @@ def me(user: m.User = Depends(get_current_user)):
 # Exactly one "admin" account may ever exist — enforced in create_user and
 # update_user below, not just at seed time. Every mutation is audit-logged.
 
-@app.get("/api/users", response_model=list[UserAdminOut])
+@app.get("/api/users", response_model=list[UserAdminOut], tags=["Users"])
 def list_users(db: Session = Depends(get_db), admin: m.User = Depends(require_role("admin"))):
     return db.query(m.User).order_by(m.User.created_at).all()
 
 
-@app.get("/api/users/permission-modules")
+@app.get("/api/users/permission-modules", tags=["Users"])
 def get_permission_modules(admin: m.User = Depends(require_role("admin"))):
     """The fixed set of module keys the User Management screen renders as
     checkboxes — a single source of truth shared with auth.PERMISSION_MODULES,
@@ -155,7 +176,7 @@ def get_permission_modules(admin: m.User = Depends(require_role("admin"))):
     return PERMISSION_MODULES
 
 
-@app.post("/api/users", response_model=UserAdminOut)
+@app.post("/api/users", response_model=UserAdminOut, tags=["Users"])
 def create_user(
     request: Request,
     payload: UserCreateIn,
@@ -190,7 +211,7 @@ def create_user(
     return user
 
 
-@app.put("/api/users/{user_id}", response_model=UserAdminOut)
+@app.put("/api/users/{user_id}", response_model=UserAdminOut, tags=["Users"])
 def update_user(
     user_id: int,
     request: Request,
@@ -235,7 +256,7 @@ def update_user(
     return user
 
 
-@app.post("/api/auth/forgot-password")
+@app.post("/api/auth/forgot-password", tags=["Auth"])
 @limiter.limit(settings.RATE_LIMIT_PASSWORD_RESET)
 def forgot_password(request: Request, payload: ForgotPasswordIn, db: Session = Depends(get_db)):
     """
@@ -267,7 +288,7 @@ def forgot_password(request: Request, payload: ForgotPasswordIn, db: Session = D
     return generic_response
 
 
-@app.post("/api/auth/reset-password")
+@app.post("/api/auth/reset-password", tags=["Auth"])
 @limiter.limit(settings.RATE_LIMIT_PASSWORD_RESET)
 def reset_password(request: Request, payload: ResetPasswordIn, db: Session = Depends(get_db)):
     # Validate the new password BEFORE consuming the token — a rejected weak
@@ -291,12 +312,12 @@ def reset_password(request: Request, payload: ResetPasswordIn, db: Session = Dep
 
 # ---------------- MASTER DATA ----------------
 
-@app.get("/api/masters/districts")
+@app.get("/api/masters/districts", tags=["Master Data"])
 def get_districts(db: Session = Depends(get_db)):
     return [d.name for d in db.query(m.District).order_by(m.District.name).all()]
 
 
-@app.get("/api/masters/talukas")
+@app.get("/api/masters/talukas", tags=["Master Data"])
 def get_talukas(district: str = Query(...), db: Session = Depends(get_db)):
     d = db.query(m.District).filter(m.District.name == district).first()
     if not d:
@@ -304,7 +325,7 @@ def get_talukas(district: str = Query(...), db: Session = Depends(get_db)):
     return [t.name for t in d.talukas]
 
 
-@app.get("/api/masters/villages")
+@app.get("/api/masters/villages", tags=["Master Data"])
 def get_villages(district: str = Query(...), taluka: str = Query(...), db: Session = Depends(get_db)):
     t = (
         db.query(m.Taluka)
@@ -317,7 +338,7 @@ def get_villages(district: str = Query(...), taluka: str = Query(...), db: Sessi
     return [v.name for v in t.villages]
 
 
-@app.get("/api/masters/villages-flat")
+@app.get("/api/masters/villages-flat", tags=["Master Data"])
 def get_villages_flat(db: Session = Depends(get_db)):
     """Every village with its parent taluka & district, for reverse (village-first) lookup."""
     rows = (
@@ -333,7 +354,7 @@ def get_villages_flat(db: Session = Depends(get_db)):
     ]
 
 
-@app.get("/api/masters/societies")
+@app.get("/api/masters/societies", tags=["Master Data"])
 def get_societies(taluka: Optional[str] = None, db: Session = Depends(get_db)):
     """
     Without a taluka filter, returns every society (used by admin screens / legacy
@@ -350,22 +371,22 @@ def get_societies(taluka: Optional[str] = None, db: Session = Depends(get_db)):
     return [s.name for s in q.order_by(m.Society.name).all()]
 
 
-@app.get("/api/masters/crops")
+@app.get("/api/masters/crops", tags=["Master Data"])
 def get_crops(db: Session = Depends(get_db)):
     return [c.name for c in db.query(m.CropMaster).order_by(m.CropMaster.name).all()]
 
 
-@app.get("/api/masters/schemes")
+@app.get("/api/masters/schemes", tags=["Master Data"])
 def get_schemes(db: Session = Depends(get_db)):
     return [s.name for s in db.query(m.SchemeMaster).order_by(m.SchemeMaster.name).all()]
 
 
-@app.get("/api/masters/machines")
+@app.get("/api/masters/machines", tags=["Master Data"])
 def get_machines(db: Session = Depends(get_db)):
     return [x.name for x in db.query(m.MachineMaster).order_by(m.MachineMaster.sort_order).all()]
 
 
-@app.get("/api/masters/options")
+@app.get("/api/masters/options", tags=["Master Data"])
 def get_options(list_code: str = Query(...), db: Session = Depends(get_db)):
     rows = (
         db.query(m.OptionMaster)
@@ -378,7 +399,7 @@ def get_options(list_code: str = Query(...), db: Session = Depends(get_db)):
 
 # ---------------- FARMER MASTER LOOKUP (Module 0: search by Aadhaar/Mobile) ----------------
 
-@app.get("/api/farmer-master/lookup", response_model=Optional[FarmerLookup])
+@app.get("/api/farmer-master/lookup", response_model=Optional[FarmerLookup], tags=["Farmer Lookup"])
 def lookup_farmer(q: str = Query(..., description="Aadhaar, Mobile number, or Farmer ID"), db: Session = Depends(get_db), user: m.User = Depends(get_current_user)):
     q = q.strip()
     # Mobile/Aadhaar stay exact-match — they're sensitive identifiers, and partial
@@ -552,7 +573,7 @@ def list_surveys(
     return [serialize_survey(r) for r in rows]
 
 
-@app.get("/api/surveys/export")
+@app.get("/api/surveys/export", tags=["Surveys"])
 def export_surveys(
     request: Request,
     q: Optional[str] = None,
@@ -712,7 +733,7 @@ def sync_plots(db: Session, survey: m.FarmerSurvey, plots_in):
         survey.plot_boundary_captured_at = None
 
 
-@app.post("/api/surveys", response_model=SurveyOut)
+@app.post("/api/surveys", response_model=SurveyOut, tags=["Surveys"])
 def create_survey(
     request: Request,
     payload: SurveyIn,
@@ -748,7 +769,7 @@ def create_survey(
     return survey
 
 
-@app.put("/api/surveys/{survey_id}", response_model=SurveyOut)
+@app.put("/api/surveys/{survey_id}", response_model=SurveyOut, tags=["Surveys"])
 def update_survey(
     survey_id: int,
     request: Request,
@@ -863,7 +884,7 @@ def delete_survey(
 # Separate from the survey's own PUT so saving a boundary (draw / Excel / GPS)
 # never requires re-submitting — or re-validating — the entire 60+ field survey.
 
-@app.get("/api/surveys/{survey_id}/plot-boundary", response_model=Optional[PlotBoundaryOut])
+@app.get("/api/surveys/{survey_id}/plot-boundary", response_model=Optional[PlotBoundaryOut], tags=["Plot Boundary"])
 def get_plot_boundary(survey_id: int, db: Session = Depends(get_db), user: m.User = Depends(require_permission("plots_map"))):
     survey = db.query(m.FarmerSurvey).get(survey_id)
     if not survey:
@@ -879,7 +900,7 @@ def get_plot_boundary(survey_id: int, db: Session = Depends(get_db), user: m.Use
     )
 
 
-@app.put("/api/surveys/{survey_id}/plot-boundary", response_model=PlotBoundaryOut)
+@app.put("/api/surveys/{survey_id}/plot-boundary", response_model=PlotBoundaryOut, tags=["Plot Boundary"])
 def save_plot_boundary(
     survey_id: int,
     payload: PlotBoundaryIn,
@@ -908,7 +929,7 @@ def save_plot_boundary(
     )
 
 
-@app.delete("/api/surveys/{survey_id}/plot-boundary")
+@app.delete("/api/surveys/{survey_id}/plot-boundary", tags=["Plot Boundary"])
 def delete_plot_boundary(
     survey_id: int,
     request: Request,
@@ -927,7 +948,7 @@ def delete_plot_boundary(
     return {"ok": True}
 
 
-@app.get("/api/plots", response_model=list[PlotSummaryOut])
+@app.get("/api/plots", response_model=list[PlotSummaryOut], tags=["Plot Boundary"])
 def list_plots(
     only_with_boundary: bool = Query(False),
     db: Session = Depends(get_db),
@@ -955,7 +976,7 @@ def split_multi(values):
     return counter
 
 
-@app.get("/api/dashboard/kpis")
+@app.get("/api/dashboard/kpis", tags=["Dashboard"])
 def dashboard_kpis(db: Session = Depends(get_db), user: m.User = Depends(get_current_user)):
     rows = db.query(m.FarmerSurvey).all()
     total = len(rows) or 1
@@ -1099,7 +1120,7 @@ def _safe_avg(values):
     return round(sum(values) / len(values), 2) if values else 0
 
 
-@app.get("/api/dashboard/yield-benchmarks")
+@app.get("/api/dashboard/yield-benchmarks", tags=["Dashboard"])
 def yield_benchmarks(db: Session = Depends(get_db), user: m.User = Depends(get_current_user)):
     """
     Historical productivity benchmarks (from actual survey data) used to power the

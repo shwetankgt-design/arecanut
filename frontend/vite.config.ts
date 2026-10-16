@@ -42,7 +42,16 @@ export default defineConfig({
         navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
           {
-            urlPattern: /^\/api\/masters\//,
+            // Matched against the request's full URL by Workbox, so an anchored
+            // relative regex like /^\/api\/masters\// only ever matches the dev
+            // server's relative "/api/..." calls. The packaged Android app is
+            // built with VITE_API_BASE set to the absolute Azure backend URL
+            // (https://arecanut...azurecontainerapps.io/api/masters/...), which
+            // that regex can never match — so master data (villages, societies,
+            // crops, schemes, machines, option lists) silently never got cached
+            // there, and dropdowns came up empty offline despite working fine in
+            // local dev. Matching on url.pathname instead works for both.
+            urlPattern: ({ url }: { url: URL }) => url.pathname.startsWith('/api/masters/'),
             handler: 'CacheFirst',
             options: { cacheName: 'masters-cache', expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 * 7 } },
           },

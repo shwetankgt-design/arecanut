@@ -69,6 +69,40 @@ export function validateBoundary(points: PlotBoundary): BoundaryValidation {
   return { valid: true };
 }
 
+// Returns true if segment p1-p2 and p3-p4 cross. Standard orientation-based
+// test (no special-casing of collinear overlap — "touching" cases are rare
+// enough for a field-walked GPS boundary that a false negative there isn't
+// worth the extra complexity).
+function segmentsIntersect(p1: LatLngPoint, p2: LatLngPoint, p3: LatLngPoint, p4: LatLngPoint): boolean {
+  const orientation = (a: LatLngPoint, b: LatLngPoint, c: LatLngPoint) =>
+    Math.sign((b.lng - a.lng) * (c.lat - a.lat) - (b.lat - a.lat) * (c.lng - a.lng));
+  const o1 = orientation(p1, p2, p3);
+  const o2 = orientation(p1, p2, p4);
+  const o3 = orientation(p3, p4, p1);
+  const o4 = orientation(p3, p4, p2);
+  return o1 !== o2 && o3 !== o4 && o1 !== 0 && o2 !== 0 && o3 !== 0 && o4 !== 0;
+}
+
+/** True if any two non-adjacent edges of the closed ring cross (a "bow-tie"
+ * shape) — the shoelace area formula silently under-reports for these rather
+ * than erroring, so it's worth flagging to the user rather than saving quietly. */
+export function hasSelfIntersection(points: PlotBoundary): boolean {
+  const n = points.length;
+  if (n < 4) return false;
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      // Skip edges that share a vertex (adjacent edges, and the pair that
+      // both touch the closing edge) — those always "intersect" at the
+      // shared point, which isn't a real crossing.
+      if (j === i + 1 || (i === 0 && j === n - 1)) continue;
+      const a1 = points[i], a2 = points[(i + 1) % n];
+      const b1 = points[j], b2 = points[(j + 1) % n];
+      if (segmentsIntersect(a1, a2, b1, b2)) return true;
+    }
+  }
+  return false;
+}
+
 export function formatArea(acres: number, lang: Lang = "en"): string {
   // Kannada has no separate singular form here, so only English pluralises.
   if (lang === "kn") return `${acres.toFixed(2)} ${t("acres", lang)}`;

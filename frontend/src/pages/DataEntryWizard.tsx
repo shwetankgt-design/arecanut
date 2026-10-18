@@ -1913,7 +1913,7 @@ export default function DataEntryWizard() {
                       <div className="gt-card p-4">
                         {plot.method === "draw" && <DrawMapTab points={plot.points} onChange={(pts) => updatePlot(plot.key, { points: pts })} />}
                         {plot.method === "excel" && <ExcelUploadTab onParsed={(pts) => updatePlot(plot.key, { points: pts })} />}
-                        {plot.method === "gps" && <GpsCaptureTab points={plot.points} onChange={(pts) => updatePlot(plot.key, { points: pts })} />}
+                        {plot.method === "gps" && <GpsCaptureTab points={plot.points} onChange={(pts) => updatePlot(plot.key, { points: pts })} reportedAreaAcres={parseFloat(plot.reportedArea) || undefined} />}
                       </div>
 
                       {plot.points.length > 0 && !validation.valid && (

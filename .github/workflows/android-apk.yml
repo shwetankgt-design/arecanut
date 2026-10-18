@@ -53,7 +53,12 @@ jobs:
           key: gradle-${{ runner.os }}-${{ hashFiles('frontend/android/**/*.gradle*') }}
 
       - name: Decode release keystore
-        working-directory: frontend/android
+        # app/build.gradle's `storeFile file(keystoreProperties['RELEASE_STORE_FILE'])`
+        # resolves relative to the app module's own project dir (frontend/android/app/),
+        # not frontend/android/ where keystore.properties itself lives — the keystore
+        # file has to be written there or Gradle reports it "not found" even though
+        # keystore.properties loaded correctly.
+        working-directory: frontend/android/app
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > release.keystore
@@ -78,8 +83,7 @@ jobs:
 
       - name: Remove keystore from runner
         if: always()
-        working-directory: frontend/android
-        run: rm -f release.keystore keystore.properties
+        run: rm -f android/app/release.keystore android/keystore.properties
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

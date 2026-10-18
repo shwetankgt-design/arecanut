@@ -4,6 +4,7 @@ import { Search, X, CloudUpload, Download, ArrowUp, ArrowDown, ArrowUpDown } fro
 import { api } from "../api";
 import { useLang } from "../LangContext";
 import { tr, trDistrict, trTaluka, trVillage } from "../i18n";
+import { analytics } from "../lib/analytics";
 
 // CR-19: columns the Farmer Records table can be sorted by, matching the
 // backend's SORTABLE_FIELDS whitelist — keep these in sync with main.py.
@@ -64,6 +65,7 @@ export default function FarmerList() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+      analytics.track("excel_export");
     } catch (e: any) {
       setExportError(e.message || "Export failed.");
     } finally {

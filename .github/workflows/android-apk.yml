@@ -32,6 +32,7 @@ jobs:
       - name: Build web bundle
         env:
           VITE_API_BASE: ${{ inputs.api_base }}
+          VITE_OPENPANEL_CLIENT_ID: ${{ secrets.OPENPANEL_CLIENT_ID }}
         run: npm run build
 
       - name: Set up JDK

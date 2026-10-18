@@ -1,5 +1,6 @@
 import { get, set, del, keys } from "idb-keyval";
 import { api } from "./api";
+import { analytics } from "./lib/analytics";
 
 const PREFIX = "pending-survey:";
 
@@ -46,6 +47,7 @@ export async function syncQueue(): Promise<{ synced: number; failed: number }> {
       failed++;
     }
   }
+  if (synced > 0 || failed > 0) analytics.track("survey_synced", { synced, failed });
   return { synced, failed };
 }
 

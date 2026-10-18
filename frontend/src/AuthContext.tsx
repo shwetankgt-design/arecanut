@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { api, getToken, setToken, getRefreshToken, setRefreshToken, AUTH_EVENT } from "./api";
+import { analytics, identifyUser, resetIdentity } from "./lib/analytics";
 
 export interface AuthUser {
   username: string;
@@ -59,6 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then((u: AuthUser) => {
         setUser(u);
         cacheUser(u);
+        identifyUser(u.username, u.role);
       })
       .catch(() => {
         // A genuine 401 already cleared the token via AUTH_EVENT — respect that.
@@ -78,12 +80,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (username: string, password: string) => {
-    const res = await api.login(username, password);
-    setToken(res.access_token);
-    setRefreshToken(res.refresh_token);
-    const u = { username: res.username, full_name: res.full_name, role: res.role, permissions: res.permissions || [] };
-    setUser(u);
-    cacheUser(u);
+    try {
+      const res = await api.login(username, password);
+      setToken(res.access_token);
+      setRefreshToken(res.refresh_token);
+      const u = { username: res.username, full_name: res.full_name, role: res.role, permissions: res.permissions || [] };
+      setUser(u);
+      cacheUser(u);
+      identifyUser(u.username, u.role);
+      analytics.track("login_success");
+    } catch (e) {
+      analytics.track("login_failed");
+      throw e;
+    }
   };
 
   const logout = () => {
@@ -93,6 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setRefreshToken(null);
     localStorage.removeItem(USER_CACHE_KEY);
     setUser(null);
+    resetIdentity();
   };
 
   const hasPermission = (module: string) => !!user && (user.role === "admin" || user.permissions.includes(module));

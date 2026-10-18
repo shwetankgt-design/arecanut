@@ -13,6 +13,7 @@ import { api } from "../api";
 import { trDistrict, trTaluka, trVillage, tr, t } from "../i18n";
 import { useLang } from "../LangContext";
 import { queueSurvey } from "../offlineQueue";
+import { analytics } from "../lib/analytics";
 import DrawMapTab from "../components/plot/DrawMapTab";
 import ExcelUploadTab from "../components/plot/ExcelUploadTab";
 import GpsCaptureTab from "../components/plot/GpsCaptureTab";
@@ -878,20 +879,27 @@ export default function DataEntryWizard() {
     delete payload.entry_timestamp;
     delete payload.total_income_inr;
 
+    for (const p of plots) {
+      if (validateBoundary(p.points).valid) analytics.track("plot_boundary_captured", { method: p.method });
+    }
+
     // Offline-first: if there's no connectivity (or the request itself fails to
     // reach the server), queue the survey locally instead of losing the data —
     // it syncs automatically the next time the device comes back online.
     if (!navigator.onLine) {
       await queueSurvey(payload, !!editId, editId ? Number(editId) : undefined);
+      analytics.track("survey_queued_offline", { isUpdate: !!editId, reason: "offline" });
       setSubmitting(false);
       navigate("/farmers?queued=1");
       return;
     }
     try {
       const saved = editId ? await api.updateSurvey(Number(editId), payload) : await api.createSurvey(payload);
+      analytics.track("survey_submitted", { isUpdate: !!editId });
       navigate(`/farmers/${saved.id}?justSaved=1`);
     } catch (e) {
       await queueSurvey(payload, !!editId, editId ? Number(editId) : undefined);
+      analytics.track("survey_queued_offline", { isUpdate: !!editId, reason: "request-failed" });
       setSubmitting(false);
       navigate("/farmers?queued=1");
     }

@@ -106,6 +106,24 @@ def require_permission(module: str):
     return dependency
 
 
+def require_any_permission(*modules: str):
+    """
+    Same as require_permission, but passes if the user holds ANY of the
+    given modules — e.g. get_survey/update_survey accept either
+    "survey_entry" (a field enumerator editing a survey they submitted) or
+    "farmer_records" (browsing/managing the full records list), since a
+    field user can be granted one without the other.
+    """
+    def dependency(user: m.User = Depends(get_current_user)) -> m.User:
+        if user.role == "admin":
+            return user
+        granted = set((user.permissions or "").split(","))
+        if not granted.intersection(modules):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Missing permission: one of {', '.join(modules)}")
+        return user
+    return dependency
+
+
 # ---------------- refresh tokens (opaque, rotated, DB-backed) ----------------
 
 def _hash_token(raw: str) -> str:

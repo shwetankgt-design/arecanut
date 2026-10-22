@@ -13,6 +13,7 @@ import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import UserManagement from "./pages/UserManagement";
 import EntryLanding from "./pages/EntryLanding";
+import SyncQueue from "./pages/SyncQueue";
 import FPOConsultationWizard from "./pages/FPOConsultationWizard";
 import FPOConsultationsList from "./pages/FPOConsultationsList";
 import { LangProvider } from "./LangContext";
@@ -31,6 +32,9 @@ export default function App() {
             <Route element={<ProtectedRoute />}>
               <Route element={<Layout />}>
                 <Route path="/" element={<Dashboard />} />
+                {/* No permission gate — this is the logged-in user's own
+                    device queue, not a shared/admin resource. */}
+                <Route path="/sync-queue" element={<SyncQueue />} />
                 <Route element={<ProtectedRoute requireAny={["survey_entry", "fpo_consultation"]} />}>
                   <Route path="/entry" element={<EntryLanding />} />
                 </Route>

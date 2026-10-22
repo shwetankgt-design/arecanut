@@ -24,14 +24,86 @@ export function setRefreshToken(token: string | null) {
 // failed, so the app forces a re-login.
 export const AUTH_EVENT = "gt-auth-expired";
 
+// Carries the HTTP status (0 for a network failure/timeout — no response was
+// ever received) so callers — principally the offline sync queue — can tell
+// a permanent rejection (bad data, no permission) from a transient one
+// (flaky signal, server hiccup) instead of treating every failure the same.
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+// FastAPI returns a 422's `detail` as an ARRAY of validation-error objects
+// ({type, loc, msg, input}), not a string. Coercing that straight into a
+// message produced "[object Object],[object Object],…" — which is exactly
+// what a field user saw in the sync queue's "needs attention" list, making
+// it impossible to tell what was actually wrong with the record. Render
+// the field name and reason instead.
+function formatErrorDetail(detail: unknown, status: number): string {
+  if (typeof detail === "string" && detail) return detail;
+  if (Array.isArray(detail) && detail.length > 0) {
+    const parts = detail.slice(0, 3).map((d: any) => {
+      // `loc` is like ["body", "age"] — the last segment is the field.
+      const field = Array.isArray(d?.loc) ? d.loc[d.loc.length - 1] : undefined;
+      const msg = d?.msg || "invalid value";
+      return field ? `${field}: ${msg}` : msg;
+    });
+    const more = detail.length - parts.length;
+    return parts.join("; ") + (more > 0 ? ` (and ${more} more)` : "");
+  }
+  return `Request failed: ${status}`;
+}
+
+// A 4xx that isn't 401 (handled separately via refresh), 408 (timeout) or
+// 429 (rate limit) — those three are worth retrying, everything else in the
+// 4xx range means retrying the exact same request will just fail the same
+// way again. 5xx and network/timeout failures (status 0) are transient.
+export function isPermanentError(e: unknown): boolean {
+  if (!(e instanceof ApiError)) return false;
+  if (e.status === 401 || e.status === 408 || e.status === 429) return false;
+  return e.status >= 400 && e.status < 500;
+}
+
+// Generous — photo payloads can be multi-megabyte on a weak field connection
+// — but without this a single stalled request hangs forever and (in the
+// offline queue, which processes entries sequentially) blocks every other
+// queued survey behind it.
+const REQUEST_TIMEOUT_MS = 60000;
+
 async function rawFetch(path: string, options?: RequestInit, token?: string | null) {
-  return fetch(`${BASE}${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    ...options,
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(`${BASE}${path}`, {
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      signal: controller.signal,
+      ...options,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// rawFetch() can reject outright (no network, DNS failure, or the
+// AbortController firing on timeout) — none of those produce a Response to
+// inspect, so they're wrapped here into the same ApiError shape (status 0)
+// the rest of the app already knows how to classify as transient.
+async function rawFetchOrThrow(path: string, options: RequestInit | undefined, token: string | null | undefined) {
+  try {
+    return await rawFetch(path, options, token);
+  } catch (e: any) {
+    throw new ApiError(
+      e?.name === "AbortError" ? "Request timed out — check your connection and try again." : "Network error — check your connection and try again.",
+      0
+    );
+  }
 }
 
 // Coalesces concurrent 401s into a single refresh call instead of firing one
@@ -63,7 +135,7 @@ async function tryRefresh(): Promise<boolean> {
 const AUTH_ENDPOINTS = ["/auth/login", "/auth/refresh", "/auth/forgot-password", "/auth/reset-password"];
 
 async function req(path: string, options?: RequestInit) {
-  let res = await rawFetch(path, options, getToken());
+  let res = await rawFetchOrThrow(path, options, getToken());
 
   // A 401 from login itself (bad credentials) or from the other public auth
   // endpoints is a normal request failure, not an expired session — it must
@@ -72,18 +144,18 @@ async function req(path: string, options?: RequestInit) {
   if (res.status === 401 && !AUTH_ENDPOINTS.includes(path)) {
     const refreshed = await tryRefresh();
     if (refreshed) {
-      res = await rawFetch(path, options, getToken());
+      res = await rawFetchOrThrow(path, options, getToken());
     } else {
       setToken(null);
       setRefreshToken(null);
       window.dispatchEvent(new Event(AUTH_EVENT));
-      throw new Error("Session expired — please log in again.");
+      throw new ApiError("Session expired — please log in again.", 401);
     }
   }
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail || `Request failed: ${res.status}`);
+    throw new ApiError(formatErrorDetail(body.detail, res.status), res.status);
   }
   return res.json();
 }

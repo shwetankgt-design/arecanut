@@ -24,7 +24,7 @@ from .schemas import (
 import json as _json
 from .auth import (
     verify_password, hash_password, validate_password_strength, create_access_token,
-    get_current_user, require_role, require_permission, PERMISSION_MODULES,
+    get_current_user, require_role, require_permission, require_any_permission, PERMISSION_MODULES,
     issue_refresh_token, rotate_refresh_token, revoke_refresh_token, revoke_all_refresh_tokens,
     register_failed_login, register_successful_login, is_locked, audit,
     issue_password_reset_token, consume_password_reset_token,
@@ -647,7 +647,7 @@ def export_surveys(
 
 
 @app.get("/api/surveys/{survey_id}", response_model=None)
-def get_survey(survey_id: int, db: Session = Depends(get_db), user: m.User = Depends(require_permission("farmer_records"))):
+def get_survey(survey_id: int, db: Session = Depends(get_db), user: m.User = Depends(require_any_permission("survey_entry", "farmer_records"))):
     s = db.query(m.FarmerSurvey).get(survey_id)
     if not s:
         raise HTTPException(status_code=404, detail="Survey not found")
@@ -775,7 +775,13 @@ def update_survey(
     request: Request,
     payload: SurveyIn,
     db: Session = Depends(get_db),
-    user: m.User = Depends(require_permission("farmer_records")),
+    # A field enumerator with only "survey_entry" (not "farmer_records") can
+    # edit a survey they submitted — this is also what unblocks a queued
+    # offline edit from a field-only user, which previously 403'd forever
+    # (see offlineQueue.ts's syncQueue: a permanent rejection is marked
+    # "failed" and stops auto-retrying, it doesn't silently vanish, but it
+    # also never used to be able to succeed for this exact user).
+    user: m.User = Depends(require_any_permission("survey_entry", "farmer_records")),
 ):
     survey = db.query(m.FarmerSurvey).get(survey_id)
     if not survey:

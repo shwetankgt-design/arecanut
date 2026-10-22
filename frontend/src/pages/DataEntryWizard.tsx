@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   ChevronLeft, ChevronRight, Search, CheckCircle2, MapPin, Camera, Check,
@@ -9,11 +9,14 @@ import {
 import { Geolocation } from "@capacitor/geolocation";
 import { Camera as CapacitorCamera, CameraResultType, CameraSource } from "@capacitor/camera";
 import { Capacitor } from "@capacitor/core";
-import { api } from "../api";
+import { api, ApiError, isPermanentError } from "../api";
 import { trDistrict, trTaluka, trVillage, tr, t } from "../i18n";
 import { useLang } from "../LangContext";
-import { queueSurvey } from "../offlineQueue";
+import { queueSurvey, newUuid } from "../offlineQueue";
+import { queueDraft, getQueuedDraft, findQueuedDraftBySurveyId, clearIfUnchanged } from "../offlineDraftQueue";
+import { runSync } from "../lib/syncManager";
 import { analytics } from "../lib/analytics";
+import { useAuth } from "../AuthContext";
 import DrawMapTab from "../components/plot/DrawMapTab";
 import ExcelUploadTab from "../components/plot/ExcelUploadTab";
 import GpsCaptureTab from "../components/plot/GpsCaptureTab";
@@ -414,7 +417,20 @@ function SubSection({ icon: Icon, title, first, children }: { icon: any; title: 
 export default function DataEntryWizard() {
   const [params] = useSearchParams();
   const editId = params.get("id");
+  // A draft created (or being resumed) offline, before it has a real server
+  // id — see offlineDraftQueue.ts. Mutually exclusive with editId: a draft
+  // is addressed one way or the other, never both, for its whole lifetime
+  // within a given page view.
+  const localDraftId = params.get("localDraft");
   const navigate = useNavigate();
+  const { user } = useAuth();
+  // Stable across repeated saves of the same draft within this session —
+  // generated once (on the first save of a brand-new draft) or picked up
+  // from the URL/queue when resuming one. See offlineDraftQueue.ts's header
+  // for why reusing the same id on every save matters: it's what prevents
+  // the same offline-created draft from being created twice server-side.
+  const draftClientUuidRef = useRef<string | null>(localDraftId || null);
+  const draftSurveyIdRef = useRef<number | null>(editId ? Number(editId) : null);
 
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<any>(empty);
@@ -512,46 +528,83 @@ export default function DataEntryWizard() {
     if (form.taluka) api.societies(form.taluka).then(setSocieties);
   }, [form.taluka]);
 
+  // Shared by every load path below (server fetch, a locally-queued draft's
+  // payload, or a locally-queued *edit* of an existing draft) — all three
+  // are the same field shape (comma-joined strings, JSON-stringified
+  // objects) since the queue stores exactly what would otherwise have been
+  // POSTed/PUT directly.
+  function applyLoadedSurvey(s: any) {
+    setForm({
+      ...s,
+      society_benefits: s.society_benefits ? s.society_benefits.split(",") : [],
+      cultivation_challenges: s.cultivation_challenges ? s.cultivation_challenges.split(",") : [],
+      mech_owned: s.mech_owned ? s.mech_owned.split(",") : [],
+      mech_rented: s.mech_rented ? s.mech_rented.split(",") : [],
+      mech_rental_rate: s.mech_rental_rate_inr_hr ? JSON.parse(s.mech_rental_rate_inr_hr) : {},
+      irrigation_source: s.irrigation_source ? s.irrigation_source.split(",") : [],
+      intercrop_crops: s.intercrop_crops ? s.intercrop_crops.split(",") : [],
+      non_farm_income_source: s.non_farm_income_source ? s.non_farm_income_source.split(",") : [],
+      input_source: s.input_source ? s.input_source.split(",") : [], // CR-14
+      input_challenges: s.input_challenges ? s.input_challenges.split(",") : [], // CR-14
+      scheme_name: s.scheme_name ? s.scheme_name.split(",") : [], // CR-15
+      grading_rows: s.grading_rows ? JSON.parse(s.grading_rows) : [], // CR-05
+    });
+    // CR-17: prefer the multi-plot list when the backend returns one (every
+    // record saved via the new flow has it); fall back to the legacy single
+    // boundary for older records that predate multi-plot support.
+    if (Array.isArray(s.plots) && s.plots.length > 0) {
+      try {
+        setPlots(s.plots.map((p: any, i: number) => ({
+          key: `p${i}`,
+          label: p.label || `Plot ${i + 1}`,
+          reportedArea: p.reported_area_acres != null ? String(p.reported_area_acres) : "",
+          method: (p.method as CaptureMethod) || "gps",
+          points: p.points || [],
+        })));
+      } catch {}
+    } else if (s.plot_boundary) {
+      try {
+        const points = JSON.parse(s.plot_boundary);
+        setPlots([{ key: "p0", label: "Plot 1", reportedArea: s.plot_boundary_area_acres != null ? String(s.plot_boundary_area_acres) : "", method: (s.plot_boundary_method as CaptureMethod) || "gps", points }]);
+      } catch {}
+    }
+  }
+
   useEffect(() => {
-    if (editId) {
-      api.getSurvey(Number(editId)).then((s: any) => {
-        setForm({
-          ...s,
-          society_benefits: s.society_benefits ? s.society_benefits.split(",") : [],
-          cultivation_challenges: s.cultivation_challenges ? s.cultivation_challenges.split(",") : [],
-          mech_owned: s.mech_owned ? s.mech_owned.split(",") : [],
-          mech_rented: s.mech_rented ? s.mech_rented.split(",") : [],
-          mech_rental_rate: s.mech_rental_rate_inr_hr ? JSON.parse(s.mech_rental_rate_inr_hr) : {},
-          irrigation_source: s.irrigation_source ? s.irrigation_source.split(",") : [],
-          intercrop_crops: s.intercrop_crops ? s.intercrop_crops.split(",") : [],
-          non_farm_income_source: s.non_farm_income_source ? s.non_farm_income_source.split(",") : [],
-          input_source: s.input_source ? s.input_source.split(",") : [], // CR-14
-          input_challenges: s.input_challenges ? s.input_challenges.split(",") : [], // CR-14
-          scheme_name: s.scheme_name ? s.scheme_name.split(",") : [], // CR-15
-          grading_rows: s.grading_rows ? JSON.parse(s.grading_rows) : [], // CR-05
-        });
-        // CR-17: prefer the multi-plot list when the backend returns one (every
-        // record saved via the new flow has it); fall back to the legacy single
-        // boundary for older records that predate multi-plot support.
-        if (Array.isArray(s.plots) && s.plots.length > 0) {
-          try {
-            setPlots(s.plots.map((p: any, i: number) => ({
-              key: `p${i}`,
-              label: p.label || `Plot ${i + 1}`,
-              reportedArea: p.reported_area_acres != null ? String(p.reported_area_acres) : "",
-              method: (p.method as CaptureMethod) || "gps",
-              points: p.points || [],
-            })));
-          } catch {}
-        } else if (s.plot_boundary) {
-          try {
-            const points = JSON.parse(s.plot_boundary);
-            setPlots([{ key: "p0", label: "Plot 1", reportedArea: s.plot_boundary_area_acres != null ? String(s.plot_boundary_area_acres) : "", method: (s.plot_boundary_method as CaptureMethod) || "gps", points }]);
-          } catch {}
+    if (!user) return;
+    if (localDraftId) {
+      // A brand-new draft created offline, or one being resumed before it's
+      // synced — load straight from the local queue; there's nothing on the
+      // server yet.
+      getQueuedDraft(user.username, localDraftId).then((entry) => {
+        if (!entry) {
+          setSubmitError(t("This draft is no longer on this device — it may have already synced. Check the Drafts list.", lang));
+          return;
         }
+        draftClientUuidRef.current = entry.clientUuid;
+        draftSurveyIdRef.current = entry.surveyId ?? null;
+        applyLoadedSurvey(entry.payload);
+      });
+    } else if (editId) {
+      const surveyId = Number(editId);
+      findQueuedDraftBySurveyId(user.username, surveyId).then((queuedOverride) => {
+        if (queuedOverride) {
+          // A not-yet-synced offline edit exists for this exact draft — it's
+          // strictly newer than whatever the server has, so show that
+          // instead of silently overwriting it with a stale fetch.
+          draftClientUuidRef.current = queuedOverride.clientUuid;
+          draftSurveyIdRef.current = surveyId;
+          applyLoadedSurvey(queuedOverride.payload);
+          return;
+        }
+        api.getSurvey(surveyId).then((s: any) => {
+          draftSurveyIdRef.current = surveyId;
+          applyLoadedSurvey(s);
+        });
       });
     }
-  }, [editId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editId, localDraftId, user]);
 
   const clearError = (k: string) =>
     setErrors((prev) => {
@@ -883,22 +936,27 @@ export default function DataEntryWizard() {
       if (validateBoundary(p.points).valid) analytics.track("plot_boundary_captured", { method: p.method });
     }
 
-    // Offline-first: if there's no connectivity (or the request itself fails to
-    // reach the server), queue the survey locally instead of losing the data —
-    // it syncs automatically the next time the device comes back online.
-    if (!navigator.onLine) {
-      await queueSurvey(payload, !!editId, editId ? Number(editId) : undefined);
-      analytics.track("survey_queued_offline", { isUpdate: !!editId, reason: "offline" });
-      setSubmitting(false);
-      navigate("/farmers?queued=1");
-      return;
-    }
+    // Offline-first: always attempt the real request first rather than
+    // short-circuiting on navigator.onLine — that flag is unreliable in a
+    // WebView (true on a captive portal / connected-but-no-internet, for
+    // instance), and a genuinely offline device fails the fetch immediately
+    // anyway, landing in the same catch block below.
     try {
       const saved = editId ? await api.updateSurvey(Number(editId), payload) : await api.createSurvey(payload);
       analytics.track("survey_submitted", { isUpdate: !!editId });
       navigate(`/farmers/${saved.id}?justSaved=1`);
     } catch (e) {
-      await queueSurvey(payload, !!editId, editId ? Number(editId) : undefined);
+      if (isPermanentError(e)) {
+        // A real rejection (bad data, no permission, etc.) — retrying the
+        // exact same request offline-queued would just fail the same way
+        // again, silently, every sync pass. Surface it now so the
+        // enumerator can fix the form instead of believing it was saved.
+        analytics.track("survey_rejected", { isUpdate: !!editId, status: e instanceof ApiError ? e.status : undefined });
+        setSubmitError((e as Error).message || t("Could not save the survey — please check the form and try again.", lang));
+        setSubmitting(false);
+        return;
+      }
+      await queueSurvey(user!.username, payload, !!editId, editId ? Number(editId) : undefined);
       analytics.track("survey_queued_offline", { isUpdate: !!editId, reason: "request-failed" });
       setSubmitting(false);
       navigate("/farmers?queued=1");
@@ -992,17 +1050,43 @@ export default function DataEntryWizard() {
     delete payload.plot_boundary_method;
     delete payload.status;
 
+    // Write-through local queue, same philosophy as submit()'s offline
+    // handling: the draft is "saved" the instant it's durably on this
+    // device, not only once the network round-trip succeeds. This also
+    // sidesteps a real hazard — createSurveyDraft has no server-side dedup
+    // (unlike a submitted survey's client_uuid), so the *only* thing
+    // allowed to ever call it for a given draft is this queue's own
+    // single-flight sync (see offlineDraftQueue.ts's header) — never a
+    // direct API call from here.
+    if (!user) return;
+    if (!draftClientUuidRef.current) draftClientUuidRef.current = newUuid();
+    const clientUuid = draftClientUuidRef.current;
+
     try {
-      const saved = editId ? await api.updateSurveyDraft(Number(editId), payload) : await api.createSurveyDraft(payload);
-      if (!editId) {
-        navigate(`/entry/farmer?id=${saved.id}`, { replace: true });
-      }
-      setDraftSavedAt(new Date());
+      await queueDraft(user.username, payload, clientUuid, draftSurveyIdRef.current ?? undefined);
     } catch (e: any) {
-      setSubmitError(e.message || t("Could not save draft. Check your connection and try again.", lang));
-    } finally {
+      setSubmitError(e.message || t("Could not save draft on this device. Try again.", lang));
       setSavingDraft(false);
+      return;
     }
+    setDraftSavedAt(new Date());
+    setSavingDraft(false);
+
+    // A brand-new draft needs a stable URL right away — before even knowing
+    // whether the sync below succeeds — so a refresh or back-navigation
+    // doesn't lose track of which local draft this is.
+    if (!editId && !localDraftId) {
+      navigate(`/entry/farmer?localDraft=${clientUuid}`, { replace: true });
+    }
+
+    // Best-effort prompt sync. Never throws (syncQueue/syncDraftQueue
+    // swallow per-entry errors internally) and never blocks the "saved"
+    // state above — if this fails or there's no connection, the draft
+    // stays safely queued and the background sync manager keeps retrying it.
+    await runSync({ force: true });
+    const refreshed = await getQueuedDraft(user.username, clientUuid);
+    if (refreshed?.surveyId) draftSurveyIdRef.current = refreshed.surveyId;
+    if (refreshed) await clearIfUnchanged(user.username, clientUuid, payload);
   };
 
   const next = () => {

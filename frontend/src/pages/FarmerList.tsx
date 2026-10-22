@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Search, X, CloudUpload, Download, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { Search, X, CloudUpload, Download, ArrowUp, ArrowDown, ArrowUpDown, WifiOff } from "lucide-react";
 import { api } from "../api";
 import { useLang } from "../LangContext";
 import { tr, trDistrict, trTaluka, trVillage } from "../i18n";
 import { analytics } from "../lib/analytics";
+import { useAuth } from "../AuthContext";
+import { listQueuedDrafts } from "../offlineDraftQueue";
+import { subscribe } from "../lib/syncManager";
 
 // CR-19: columns the Farmer Records table can be sorted by, matching the
 // backend's SORTABLE_FIELDS whitelist — keep these in sync with main.py.
@@ -19,12 +22,21 @@ const SORT_COLUMNS: { key: string; label: string }[] = [
 
 export default function FarmerList() {
   const [rows, setRows] = useState<any[]>([]);
+  // Drafts created offline that have never reached the server at all (no
+  // surveyId yet) — these don't exist in `rows` (that's api.listSurveys(),
+  // server data only), so they're fetched separately and merged into the
+  // Drafts view. A local draft that already has a surveyId (an offline edit
+  // of an existing synced draft) is intentionally NOT included here — it's
+  // already present in `rows`, just possibly showing stale pre-edit values
+  // until that edit syncs.
+  const [localDrafts, setLocalDrafts] = useState<any[]>([]);
   const [q, setQ] = useState("");
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { lang } = useLang();
+  const { user } = useAuth();
   const justQueued = searchParams.get("queued") === "1";
   const sortBy = searchParams.get("sort_by") || "entry_timestamp";
   const sortDir = searchParams.get("sort_dir") === "asc" ? "asc" : "desc";
@@ -78,6 +90,33 @@ export default function FarmerList() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
+  useEffect(() => {
+    if (!user) { setLocalDrafts([]); return; }
+    const loadLocalDrafts = () => {
+      listQueuedDrafts(user.username).then((entries) => {
+        setLocalDrafts(
+          entries
+            .filter((e) => !e.surveyId)
+            .map((e) => ({ ...e.payload, id: e.clientUuid, clientUuid: e.clientUuid, status: "draft", localOnly: true }))
+        );
+      });
+    };
+    loadLocalDrafts();
+    // Re-reads whenever the sync manager's state changes — in particular,
+    // once a background sync assigns this draft a real surveyId, it needs
+    // to drop out of this local-only list (it'll then appear via `rows`
+    // like any other server draft, picking up the "DRAFT" badge without
+    // the "not yet synced" one).
+    return subscribe(loadLocalDrafts);
+  }, [user]);
+
+  const statusFilter = searchParams.get("status") || "all";
+  const showLocalDrafts = statusFilter === "all" || statusFilter === "draft";
+  const visibleLocalDrafts = showLocalDrafts
+    ? localDrafts.filter((d) => !q || (d.farmer_name || "").toLowerCase().includes(q.toLowerCase()))
+    : [];
+  const displayRows = [...visibleLocalDrafts, ...rows];
+
   const clearFilters = () => {
     setSearchParams({});
     setQ("");
@@ -90,7 +129,6 @@ export default function FarmerList() {
   };
 
   const activeFilters = Object.entries(filterParams).filter(([k]) => k !== "sort_by" && k !== "sort_dir" && k !== "status");
-  const statusFilter = searchParams.get("status") || "all";
   const setStatusFilter = (value: string) => {
     const next = new URLSearchParams(searchParams);
     if (value === "all") next.delete("status");
@@ -102,7 +140,7 @@ export default function FarmerList() {
     <div className="flex flex-col gap-3">
       <div>
         <h1 className="text-xl font-bold text-[var(--gt-purple-dark)]">{tr("farmerListTitle", lang)}</h1>
-        <p className="text-sm text-[var(--gt-text-muted)]">{rows.length} {tr("records", lang)}</p>
+        <p className="text-sm text-[var(--gt-text-muted)]">{displayRows.length} {tr("records", lang)}</p>
       </div>
 
       {justQueued && (
@@ -185,13 +223,24 @@ export default function FarmerList() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.id} className="border-b border-[var(--gt-border)] hover:bg-[#F6F4F9] cursor-pointer" onClick={() => navigate(`/farmers/${r.id}`)}>
+            {displayRows.map((r) => {
+              const editHref = r.localOnly ? `/entry/farmer?localDraft=${r.clientUuid}` : `/entry/farmer?id=${r.id}`;
+              return (
+              <tr
+                key={r.id}
+                className="border-b border-[var(--gt-border)] hover:bg-[#F6F4F9] cursor-pointer"
+                onClick={() => navigate(r.localOnly ? editHref : `/farmers/${r.id}`)}
+              >
                 <td className="p-3">
                   <div className="font-medium flex items-center gap-1.5">
                     {r.farmer_name || <span className="text-[var(--gt-text-muted)]">Untitled draft</span>}
                     {r.status === "draft" && (
                       <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full">DRAFT</span>
+                    )}
+                    {r.localOnly && (
+                      <span className="flex items-center gap-0.5 text-[10px] font-semibold text-[var(--gt-text-muted)] bg-[#F1EBF7] px-1.5 py-0.5 rounded-full">
+                        <WifiOff size={9} /> Not yet synced
+                      </span>
                     )}
                   </div>
                   <div className="text-xs text-[var(--gt-text-muted)]">{r.farmer_id || "—"} &middot; {r.mobile_no || "—"}</div>
@@ -206,14 +255,15 @@ export default function FarmerList() {
                 <td className="p-3">
                   <button
                     className="text-[var(--gt-purple)] text-xs font-semibold underline"
-                    onClick={(e) => { e.stopPropagation(); navigate(`/entry/farmer?id=${r.id}`); }}
+                    onClick={(e) => { e.stopPropagation(); navigate(editHref); }}
                   >
                     {r.status === "draft" ? "Continue" : tr("edit", lang)}
                   </button>
                 </td>
               </tr>
-            ))}
-            {rows.length === 0 && (
+              );
+            })}
+            {displayRows.length === 0 && (
               <tr>
                 <td colSpan={7} className="p-6 text-center text-[var(--gt-text-muted)]">{tr("noRecords", lang)}</td>
               </tr>

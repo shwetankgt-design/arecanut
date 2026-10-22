@@ -1,52 +1,106 @@
 import { useEffect, useRef, useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LayoutDashboard, ClipboardList, PlusCircle, Users, Languages, WifiOff, RefreshCw, LogOut, UserCircle, Map, ShieldCheck, MoreHorizontal } from "lucide-react";
+import { NavLink, Outlet, useNavigate, Link } from "react-router-dom";
+import { LayoutDashboard, ClipboardList, PlusCircle, Users, Languages, WifiOff, RefreshCw, LogOut, UserCircle, Map, ShieldCheck, MoreHorizontal, AlertTriangle, CloudUpload } from "lucide-react";
 import { useLang } from "./LangContext";
 import { tr } from "./i18n";
 import { useAuth } from "./AuthContext";
-import { pendingCount, syncQueue, attachAutoSync } from "./offlineQueue";
+import { initSyncManager, runSync, subscribe, adoptLegacyQueue, clearAutoAdoptedNotice, type SyncManagerState } from "./lib/syncManager";
 
 function SyncStatus() {
   const [online, setOnline] = useState(navigator.onLine);
-  const [pending, setPending] = useState(0);
-  const [syncing, setSyncing] = useState(false);
-
-  const refreshPending = () => pendingCount().then(setPending);
+  const [syncState, setSyncState] = useState<SyncManagerState>({ syncing: false, pending: 0, failed: 0, legacyCount: 0, autoAdopted: 0 });
 
   useEffect(() => {
-    refreshPending();
-    const onOnline = () => { setOnline(true); refreshPending(); };
+    initSyncManager();
+    const unsubscribe = subscribe(setSyncState);
+    const onOnline = () => setOnline(true);
     const onOffline = () => setOnline(false);
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
-    attachAutoSync(() => refreshPending());
-    const interval = setInterval(refreshPending, 15000);
     return () => {
+      unsubscribe();
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
-      clearInterval(interval);
     };
   }, []);
 
-  const manualSync = async () => {
-    setSyncing(true);
-    await syncQueue();
-    await refreshPending();
-    setSyncing(false);
-  };
+  const { pending, failed, syncing } = syncState;
 
   if (online && pending === 0) return null;
 
   return (
-    <div className={`flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full ${online ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-white/15 text-white"}`}>
+    <div className={`flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full ${
+      !online ? "bg-white/15 text-white" : failed > 0 ? "bg-red-50 text-[var(--gt-danger)] border border-red-200" : "bg-amber-50 text-amber-700 border border-amber-200"
+    }`}>
       {!online && <WifiOff size={12} />}
-      {online && pending > 0 && <span>{pending} pending sync</span>}
-      {!online && <span>Offline{pending > 0 ? ` · ${pending} queued` : ""}</span>}
+      {online && failed > 0 && <AlertTriangle size={12} />}
       {online && pending > 0 && (
-        <button type="button" onClick={manualSync} disabled={syncing} className="underline">
+        <Link to="/sync-queue" className="underline">
+          {failed > 0 ? `${failed} need${failed === 1 ? "s" : ""} attention` : `${pending} pending sync`}
+        </Link>
+      )}
+      {!online && <span>Offline{pending > 0 ? ` · ${pending} queued` : ""}</span>}
+      {online && pending > failed && (
+        // User-initiated sync forces a retry of entries already marked
+        // "failed" too — whatever caused the rejection may have been fixed
+        // since (e.g. a permission grant), and an explicit tap is a
+        // reasonable point to let the user find out.
+        <button type="button" onClick={() => runSync({ force: true })} disabled={syncing} className="underline">
           <RefreshCw size={11} className={`inline mr-0.5 ${syncing ? "animate-spin" : ""}`} /> Sync
         </button>
       )}
+    </div>
+  );
+}
+
+function LegacyQueuePrompt() {
+  const { user } = useAuth();
+  const [legacyCount, setLegacyCount] = useState(0);
+  const [autoAdopted, setAutoAdopted] = useState(0);
+  const [dismissed, setDismissed] = useState(false);
+  const [adopting, setAdopting] = useState(false);
+
+  useEffect(() => subscribe((s) => { setLegacyCount(s.legacyCount); setAutoAdopted(s.autoAdopted); }), []);
+
+  // Adopted automatically because the session carried straight through the
+  // app update (so this is unambiguously the same user's data) — tell them
+  // rather than making them act. See syncManager.setCurrentUser.
+  if (autoAdopted > 0) {
+    return (
+      <div className="bg-emerald-50 border-b border-emerald-200 text-emerald-800 text-xs sm:text-sm px-4 py-2 flex items-center justify-between gap-3 flex-wrap">
+        <span className="flex items-center gap-2">
+          <CloudUpload size={15} />
+          {autoAdopted} survey{autoAdopted === 1 ? "" : "s"} saved on this device before the app update {autoAdopted === 1 ? "is" : "are"} now syncing to the server.
+        </span>
+        <button type="button" className="underline font-medium shrink-0" onClick={clearAutoAdoptedNotice}>Dismiss</button>
+      </div>
+    );
+  }
+
+  if (!user || legacyCount === 0 || dismissed) return null;
+
+  const n = legacyCount;
+  return (
+    <div className="bg-amber-50 border-b border-amber-200 text-amber-800 text-xs sm:text-sm px-4 py-2 flex items-center justify-between gap-3 flex-wrap">
+      <span>
+        {n} survey{n === 1 ? "" : "s"} {n === 1 ? "was" : "were"} queued on this device before an update and{" "}
+        {n === 1 ? "isn't" : "aren't"} yet linked to an account. Sync {n === 1 ? "it" : "them"} as <b>{user.username}</b>?
+      </span>
+      <div className="flex gap-3 shrink-0">
+        <button type="button" className="underline font-medium" onClick={() => setDismissed(true)}>Not now</button>
+        <button
+          type="button"
+          className="underline font-semibold"
+          disabled={adopting}
+          onClick={async () => {
+            setAdopting(true);
+            await adoptLegacyQueue();
+            setAdopting(false);
+          }}
+        >
+          {adopting ? "Syncing…" : `Yes, sync as ${user.username}`}
+        </button>
+      </div>
     </div>
   );
 }
@@ -58,9 +112,9 @@ export default function Layout() {
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
 
-  const doLogout = () => {
-    logout();
-    navigate("/login");
+  const doLogout = async () => {
+    const proceeded = await logout();
+    if (proceeded) navigate("/login");
   };
 
   useEffect(() => {
@@ -152,6 +206,8 @@ export default function Layout() {
           ))}
         </nav>
       </div>
+
+      <LegacyQueuePrompt />
 
       <main className="flex-1 max-w-5xl w-full mx-auto px-3 py-4 pb-24 md:pb-6">
         <Outlet />

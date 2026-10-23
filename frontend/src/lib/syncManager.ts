@@ -6,7 +6,7 @@ import {
   adoptLegacyQueue as adoptLegacyQueueInStore,
   type SyncResult,
 } from "../offlineQueue";
-import { syncDraftQueue, pendingDraftCount, type DraftSyncResult } from "../offlineDraftQueue";
+import { syncDraftQueue, pendingDraftCount, failedDraftCount, type DraftSyncResult } from "../offlineDraftQueue";
 
 // Single owner of every "try to sync the offline queue now" trigger, and of
 // which device user the queues are currently scoped to. Previously sync
@@ -63,18 +63,18 @@ export async function refreshCounts(): Promise<void> {
     setState({ pending: 0, failed: 0, legacyCount: 0 });
     return;
   }
-  const [surveyPending, surveyFailed, draftPending, legacy] = await Promise.all([
+  const [surveyPending, surveyFailed, draftPending, draftFailed, legacy] = await Promise.all([
     queuePendingCount(currentUsername),
     queueFailedCount(currentUsername),
     pendingDraftCount(currentUsername),
+    failedDraftCount(currentUsername),
     listLegacyQueued(),
   ]);
-  // The draft queue doesn't track a separate "failed" count the way the
-  // survey queue's UI does — a draft is low-stakes enough (it's explicitly
-  // incomplete data) that surfacing it in the combined pending count is
-  // enough; drafts needing attention are visible from the Drafts tab where
-  // the user already goes to resume one.
-  setState({ pending: surveyPending + draftPending, failed: surveyFailed, legacyCount: legacy.length });
+  // Both queues' failed entries are now visible (and discardable) on the
+  // same /sync-queue page — see that page's header comment for why a
+  // failed draft edit used to be invisible everywhere despite being
+  // counted here.
+  setState({ pending: surveyPending + draftPending, failed: surveyFailed + draftFailed, legacyCount: legacy.length });
 }
 
 let surveyInFlight: Promise<SyncResult> | null = null;

@@ -333,6 +333,26 @@ function getErrors(form: any): Record<string, string> {
   ["mech_loan_amount_inr_lakh", "credit_outstanding_inr_lakh", "credit_gap_inr_lakh", "kcc_limit_inr_lakh", "overdraft_limit_inr_lakh"].forEach((f) => {
     if (!e[f] && !isBlank(form[f]) && Number(form[f]) > 1000) e[f] = "Cannot exceed ₹10 crore (1000 lakh).";
   });
+  // Mirrors SurveyIn's server-side upper bounds (schemas.py) — these five
+  // groups previously had no client-side equivalent at all, so a typo (an
+  // extra zero on a yield or plant count) passed the form, 422'd at
+  // submit/sync time, and for an offline submission got permanently stuck
+  // in the sync queue with no way to fix it short of discarding the record.
+  ["areca_area_acres", "crop2_area_acres", "crop3_area_acres", "input_distance_km", "intercrop_area_acres", "land_leased_acres", "land_own_acres"].forEach((f) => {
+    if (!e[f] && !isBlank(form[f]) && Number(form[f]) > 100000) e[f] = "That seems too large — please check this value.";
+  });
+  if (!e.areca_plant_count && !isBlank(form.areca_plant_count) && Number(form.areca_plant_count) > 10_000_000) {
+    e.areca_plant_count = "That seems too large — please check this value.";
+  }
+  ["credit_repayment_months", "storage_duration_months", "storage_loan_repayment_months"].forEach((f) => {
+    if (!e[f] && !isBlank(form[f]) && Number(form[f]) > 1200) e[f] = "That's over 100 years — please check this value.";
+  });
+  ["crop2_rate", "crop2_yield", "crop3_rate", "crop3_yield", "logistics_cost_inr_per_qtl", "rate_inr_per_kg", "total_household_income_inr_lakh", "yield_processed_qtl", "yield_raw_qtl"].forEach((f) => {
+    if (!e[f] && !isBlank(form[f]) && Number(form[f]) > 1_000_000) e[f] = "That seems too large — please check this value.";
+  });
+  ["input_purchase_delay_days", "machinery_waiting_days"].forEach((f) => {
+    if (!e[f] && !isBlank(form[f]) && Number(form[f]) > 3650) e[f] = "That's over 10 years — please check this value.";
+  });
 
   return e;
 }

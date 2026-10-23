@@ -203,7 +203,13 @@ class SurveyDraftIn(BaseModel):
     farmer_name: Optional[str] = Field(None, max_length=STR_MAX)
     mobile_no: Optional[str] = Field(None, max_length=20)
     gender: Optional[str] = Field(None, max_length=20)
-    age: Optional[int] = Field(None, ge=0, le=150)
+    # Range/length caps on the fields below were found to reject legitimate
+    # already-collected field data (e.g. a 1-acre plot_boundary walk at
+    # default GPS spacing exceeds 2000 chars) and had no client-side
+    # equivalent, so a queued offline submission could get permanently
+    # stuck with no way to fix it short of discarding the record. Per
+    # product decision: these are now enforced in the form only, not here.
+    age: Optional[int] = None
     guardian_name: Optional[str] = Field(None, max_length=STR_MAX)
     survey_year: Optional[int] = Field(None, ge=1950, le=2100)
 
@@ -211,7 +217,7 @@ class SurveyDraftIn(BaseModel):
     society_name: Optional[str] = Field(None, max_length=STR_MAX)
     society_since_year: Optional[int] = Field(None, ge=1900, le=2100)
     society_benefits: Optional[str] = Field(None, max_length=TEXT_MAX)
-    society_benefits_other: Optional[str] = Field(None, max_length=STR_MAX)
+    society_benefits_other: Optional[str] = None
 
     village: Optional[str] = Field(None, max_length=STR_MAX)
     taluka: Optional[str] = Field(None, max_length=STR_MAX)
@@ -227,7 +233,7 @@ class SurveyDraftIn(BaseModel):
     organic_cert_aware: Optional[str] = Field(None, max_length=10)
     intercropping: Optional[str] = Field(None, max_length=10)
     intercrop_crops: Optional[str] = Field(None, max_length=TEXT_MAX)
-    intercrop_crops_other: Optional[str] = Field(None, max_length=STR_MAX)
+    intercrop_crops_other: Optional[str] = None
     intercrop_area_acres: Optional[float] = Field(None, ge=0, le=100000)
 
     cultivation_cost_inr: Optional[float] = Field(None, ge=0, le=100_000_000)
@@ -247,15 +253,15 @@ class SurveyDraftIn(BaseModel):
     storage_source: Optional[str] = Field(None, max_length=STR_MAX)
     storage_loan_availed: Optional[str] = Field(None, max_length=10)
     storage_loan_amount_inr: Optional[float] = Field(None, ge=0, le=100_000_000)
-    storage_loan_interest_pct: Optional[float] = Field(None, ge=0, le=50)
+    storage_loan_interest_pct: Optional[float] = None
     storage_loan_repayment_months: Optional[int] = Field(None, ge=0, le=1200)
     storage_warehouse_receipt: Optional[str] = Field(None, max_length=10)
     logistics_provider: Optional[str] = Field(None, max_length=STR_MAX)
-    logistics_provider_other: Optional[str] = Field(None, max_length=STR_MAX)
+    logistics_provider_other: Optional[str] = None
     logistics_cost_inr_per_qtl: Optional[float] = Field(None, ge=0, le=1_000_000)
 
     cultivation_challenges: Optional[str] = Field(None, max_length=TEXT_MAX)
-    cultivation_challenges_other: Optional[str] = Field(None, max_length=STR_MAX)
+    cultivation_challenges_other: Optional[str] = None
     machinery_waiting_days: Optional[int] = Field(None, ge=0, le=3650)
 
     crop2_name: Optional[str] = Field(None, max_length=STR_MAX)
@@ -268,32 +274,32 @@ class SurveyDraftIn(BaseModel):
     crop3_rate: Optional[float] = Field(None, ge=0, le=1_000_000)
 
     mech_owned: Optional[str] = Field(None, max_length=TEXT_MAX)
-    mech_owned_other: Optional[str] = Field(None, max_length=STR_MAX)
+    mech_owned_other: Optional[str] = None
     mech_rented: Optional[str] = Field(None, max_length=TEXT_MAX)
-    mech_rented_other: Optional[str] = Field(None, max_length=STR_MAX)
+    mech_rented_other: Optional[str] = None
     mech_rental_rate_inr_hr: Optional[str] = Field(None, max_length=TEXT_MAX)
     mech_financed: Optional[str] = Field(None, max_length=10)
     mech_loan_amount_inr_lakh: Optional[float] = Field(None, ge=0, le=1000)
-    mech_loan_interest_pct: Optional[float] = Field(None, ge=0, le=50)
+    mech_loan_interest_pct: Optional[float] = None
 
     total_household_income_inr_lakh: Optional[float] = Field(None, ge=0, le=1_000_000)
     total_household_income_bracket: Optional[str] = Field(None, max_length=20)
     non_farm_income_source: Optional[str] = Field(None, max_length=TEXT_MAX)
-    non_farm_income_source_other: Optional[str] = Field(None, max_length=STR_MAX)
+    non_farm_income_source_other: Optional[str] = None
     bank_account: Optional[str] = Field(None, max_length=10)
     overdraft_facility: Optional[str] = Field(None, max_length=10)
     overdraft_limit_inr_lakh: Optional[float] = Field(None, ge=0, le=1000)
 
     credit_linkage: Optional[str] = Field(None, max_length=10)
     credit_source: Optional[str] = Field(None, max_length=STR_MAX)
-    credit_source_other: Optional[str] = Field(None, max_length=STR_MAX)
+    credit_source_other: Optional[str] = None
     credit_amount_inr: Optional[float] = Field(None, ge=0, le=100_000_000)
-    credit_interest_rate_pct: Optional[float] = Field(None, ge=0, le=50)
+    credit_interest_rate_pct: Optional[float] = None
     credit_repayment_months: Optional[int] = Field(None, ge=0, le=1200)
     credit_outstanding_inr_lakh: Optional[float] = Field(None, ge=0, le=1000)
     loan_application_outcome: Optional[str] = Field(None, max_length=STR_MAX)
     loan_rejection_reason: Optional[str] = Field(None, max_length=STR_MAX)
-    loan_rejection_reason_other: Optional[str] = Field(None, max_length=STR_MAX)
+    loan_rejection_reason_other: Optional[str] = None
     credit_gap_inr_lakh: Optional[float] = Field(None, ge=0, le=1000)
 
     scheme_availed: Optional[str] = Field(None, max_length=10)
@@ -309,17 +315,17 @@ class SurveyDraftIn(BaseModel):
     natural_calamity_5yr: Optional[str] = Field(None, max_length=10)
 
     input_source: Optional[str] = Field(None, max_length=TEXT_MAX)
-    input_source_other: Optional[str] = Field(None, max_length=STR_MAX)
+    input_source_other: Optional[str] = None
     input_distance_km: Optional[float] = Field(None, ge=0, le=100000)
     input_challenges: Optional[str] = Field(None, max_length=TEXT_MAX)
-    input_challenges_other: Optional[str] = Field(None, max_length=STR_MAX)
+    input_challenges_other: Optional[str] = None
     input_purchase_delay_days: Optional[int] = Field(None, ge=0, le=3650)
 
     tech_adoption: Optional[str] = Field(None, max_length=10)
     tech_adoption_detail: Optional[str] = Field(None, max_length=TEXT_MAX)
 
     kcc_account: Optional[str] = Field(None, max_length=10)
-    kcc_limit_inr_lakh: Optional[float] = Field(None, ge=0, le=1000)
+    kcc_limit_inr_lakh: Optional[float] = None
 
     mobile_verified: Optional[bool] = False
 
@@ -328,8 +334,11 @@ class SurveyDraftIn(BaseModel):
     field_photo: Optional[str] = Field(None, max_length=6_000_000)
     client_uuid: Optional[str] = Field(None, max_length=100)
 
-    plot_boundary: Optional[str] = Field(None, max_length=TEXT_MAX)
-    plot_boundary_area_acres: Optional[float] = Field(None, ge=0, le=1_000_000)
+    # No length cap — see the comment on `age` above. plot_boundary in
+    # particular is JSON-serialized GPS points; a 1-acre plot walked at
+    # default spacing alone exceeds what TEXT_MAX allowed.
+    plot_boundary: Optional[str] = None
+    plot_boundary_area_acres: Optional[float] = None
     plot_boundary_method: Optional[str] = Field(None, max_length=20)
 
     plots: Optional[List[DraftPlotIn]] = None
@@ -344,7 +353,10 @@ class SurveyIn(BaseModel):
     farmer_name: str = Field(..., min_length=1, max_length=STR_MAX)
     mobile_no: str
     gender: str = Field(..., max_length=20)
-    age: int = Field(..., ge=18, le=80)
+    # No ge/le on age — see the comment on SurveyDraftIn.age for why
+    # (same applies to every range/length cap below that has no client-side
+    # equivalent: form-only now, not server-enforced).
+    age: int
     guardian_name: Optional[str] = Field(None, max_length=STR_MAX)
     survey_year: Optional[int] = Field(None, ge=1950, le=2100)  # CR-18
 
@@ -352,7 +364,7 @@ class SurveyIn(BaseModel):
     society_name: Optional[str] = Field(None, max_length=STR_MAX)
     society_since_year: Optional[int] = Field(None, ge=1900, le=2100)
     society_benefits: Optional[str] = Field(None, max_length=TEXT_MAX)
-    society_benefits_other: Optional[str] = Field(None, max_length=STR_MAX)
+    society_benefits_other: Optional[str] = None
 
     village: str = Field(..., min_length=1, max_length=STR_MAX)
     taluka: str = Field(..., min_length=1, max_length=STR_MAX)
@@ -368,7 +380,7 @@ class SurveyIn(BaseModel):
     organic_cert_aware: Optional[str] = Field(None, max_length=10)
     intercropping: Optional[str] = Field(None, max_length=10)
     intercrop_crops: Optional[str] = Field(None, max_length=TEXT_MAX)
-    intercrop_crops_other: Optional[str] = Field(None, max_length=STR_MAX)
+    intercrop_crops_other: Optional[str] = None
     intercrop_area_acres: Optional[float] = Field(None, ge=0, le=100000)
 
     cultivation_cost_inr: float = Field(..., ge=0, le=100_000_000)  # capped at INR 10 crore
@@ -388,15 +400,15 @@ class SurveyIn(BaseModel):
     storage_source: Optional[str] = Field(None, max_length=STR_MAX)
     storage_loan_availed: Optional[str] = Field(None, max_length=10)
     storage_loan_amount_inr: Optional[float] = Field(None, ge=0, le=100_000_000)  # capped at INR 10 crore
-    storage_loan_interest_pct: Optional[float] = Field(None, ge=0, le=50)  # capped at 50% per annum
+    storage_loan_interest_pct: Optional[float] = None  # was capped at 50% per annum
     storage_loan_repayment_months: Optional[int] = Field(None, ge=0, le=1200)
     storage_warehouse_receipt: Optional[str] = Field(None, max_length=10)
     logistics_provider: Optional[str] = Field(None, max_length=STR_MAX)
-    logistics_provider_other: Optional[str] = Field(None, max_length=STR_MAX)
+    logistics_provider_other: Optional[str] = None
     logistics_cost_inr_per_qtl: Optional[float] = Field(None, ge=0, le=1_000_000)
 
     cultivation_challenges: Optional[str] = Field(None, max_length=TEXT_MAX)
-    cultivation_challenges_other: Optional[str] = Field(None, max_length=STR_MAX)
+    cultivation_challenges_other: Optional[str] = None
     machinery_waiting_days: Optional[int] = Field(None, ge=0, le=3650)
 
     crop2_name: Optional[str] = Field(None, max_length=STR_MAX)
@@ -409,32 +421,32 @@ class SurveyIn(BaseModel):
     crop3_rate: Optional[float] = Field(None, ge=0, le=1_000_000)
 
     mech_owned: Optional[str] = Field(None, max_length=TEXT_MAX)
-    mech_owned_other: Optional[str] = Field(None, max_length=STR_MAX)
+    mech_owned_other: Optional[str] = None
     mech_rented: Optional[str] = Field(None, max_length=TEXT_MAX)
-    mech_rented_other: Optional[str] = Field(None, max_length=STR_MAX)
+    mech_rented_other: Optional[str] = None
     mech_rental_rate_inr_hr: Optional[str] = Field(None, max_length=TEXT_MAX)
     mech_financed: Optional[str] = Field(None, max_length=10)
     mech_loan_amount_inr_lakh: Optional[float] = Field(None, ge=0, le=1000)  # capped at INR 10 crore (1000 lakh)
-    mech_loan_interest_pct: Optional[float] = Field(None, ge=0, le=50)  # capped at 50% per annum
+    mech_loan_interest_pct: Optional[float] = None  # was capped at 50% per annum
 
     total_household_income_inr_lakh: Optional[float] = Field(None, ge=0, le=1_000_000)  # legacy, superseded by bracket
     total_household_income_bracket: Optional[str] = Field(None, max_length=20)
     non_farm_income_source: Optional[str] = Field(None, max_length=TEXT_MAX)
-    non_farm_income_source_other: Optional[str] = Field(None, max_length=STR_MAX)
+    non_farm_income_source_other: Optional[str] = None
     bank_account: Optional[str] = Field(None, max_length=10)
     overdraft_facility: Optional[str] = Field(None, max_length=10)
     overdraft_limit_inr_lakh: Optional[float] = Field(None, ge=0, le=1000)  # capped at INR 10 crore (1000 lakh)
 
     credit_linkage: str = Field(..., max_length=10)
     credit_source: Optional[str] = Field(None, max_length=STR_MAX)
-    credit_source_other: Optional[str] = Field(None, max_length=STR_MAX)
+    credit_source_other: Optional[str] = None
     credit_amount_inr: Optional[float] = Field(None, ge=0, le=100_000_000)  # capped at INR 10 crore
-    credit_interest_rate_pct: Optional[float] = Field(None, ge=0, le=50)  # capped at 50% per annum
+    credit_interest_rate_pct: Optional[float] = None  # was capped at 50% per annum
     credit_repayment_months: Optional[int] = Field(None, ge=0, le=1200)
     credit_outstanding_inr_lakh: Optional[float] = Field(None, ge=0, le=1000)  # capped at INR 10 crore (1000 lakh)
     loan_application_outcome: Optional[str] = Field(None, max_length=STR_MAX)
     loan_rejection_reason: Optional[str] = Field(None, max_length=STR_MAX)
-    loan_rejection_reason_other: Optional[str] = Field(None, max_length=STR_MAX)
+    loan_rejection_reason_other: Optional[str] = None
     credit_gap_inr_lakh: Optional[float] = Field(None, ge=0, le=1000)  # capped at INR 10 crore (1000 lakh)
 
     scheme_availed: str = Field(..., max_length=10)
@@ -450,17 +462,17 @@ class SurveyIn(BaseModel):
     natural_calamity_5yr: Optional[str] = Field(None, max_length=10)
 
     input_source: str = Field(..., max_length=TEXT_MAX)  # CR-14: multi-select, comma-joined
-    input_source_other: Optional[str] = Field(None, max_length=STR_MAX)
+    input_source_other: Optional[str] = None
     input_distance_km: Optional[float] = Field(None, ge=0, le=100000)
     input_challenges: Optional[str] = Field(None, max_length=TEXT_MAX)  # CR-14: multi-select, comma-joined
-    input_challenges_other: Optional[str] = Field(None, max_length=STR_MAX)
+    input_challenges_other: Optional[str] = None
     input_purchase_delay_days: Optional[int] = Field(None, ge=0, le=3650)
 
     tech_adoption: str = Field(..., max_length=10)
     tech_adoption_detail: Optional[str] = Field(None, max_length=TEXT_MAX)
 
     kcc_account: Optional[str] = Field(None, max_length=10)
-    kcc_limit_inr_lakh: Optional[float] = Field(None, ge=0, le=1000)  # capped at INR 10 crore (1000 lakh)
+    kcc_limit_inr_lakh: Optional[float] = None  # was capped at INR 10 crore (1000 lakh)
 
     mobile_verified: Optional[bool] = False
 
@@ -469,8 +481,12 @@ class SurveyIn(BaseModel):
     field_photo: Optional[str] = Field(None, max_length=6_000_000)  # base64 data URL, client-compressed
     client_uuid: Optional[str] = Field(None, max_length=100)  # set by the app when queued offline, for de-duplication on sync
 
-    plot_boundary: Optional[str] = Field(None, max_length=TEXT_MAX)
-    plot_boundary_area_acres: Optional[float] = Field(None, ge=0, le=1_000_000)
+    # No length cap — JSON-serialized GPS points; a 1-acre plot walked at
+    # default spacing alone exceeds what TEXT_MAX (2000 chars) allowed,
+    # permanently blocking sync of a real, already-collected survey. See
+    # the identical comment on SurveyDraftIn.plot_boundary above.
+    plot_boundary: Optional[str] = None
+    plot_boundary_area_acres: Optional[float] = None
     plot_boundary_method: Optional[str] = Field(None, max_length=20)
 
     # CR-17: multiple plot/land records per farmer. When present (new/edited

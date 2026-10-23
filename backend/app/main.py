@@ -702,9 +702,25 @@ def generate_farmer_id(db: Session) -> str:
 
 def sync_plots(db: Session, survey: m.FarmerSurvey, plots_in):
     """CR-17: replace a survey's FarmerPlot rows wholesale from the submitted
-    list, and mirror plots[0] into the legacy single-boundary columns so
-    older consumers (Plots Map, dashboard filters) keep working unchanged.
-    No-op when the request didn't send `plots` at all (old-style clients)."""
+    list. No-op when the request didn't send `plots` at all (old-style
+    clients).
+
+    Previously also re-derived the legacy single-boundary mirror columns
+    (plot_boundary / plot_boundary_area_acres / plot_boundary_method) from
+    plots[0] here, overwriting whatever the client had already sent for
+    those same fields via the top-level SurveyIn payload (which main.py's
+    create_survey/update_survey set via FarmerSurvey(**data)/setattr
+    *before* this function runs). Two problems with that: (1) the
+    server-recomputed value was then subject to SurveyIn's Field-level
+    validation on the *client's* value, not this one, so a client-sent
+    plot_boundary could pass validation and then get silently replaced by a
+    value that was never itself re-validated; (2) it meant the client's own
+    area/method computation was discarded even when correct, for no benefit.
+    Per product decision: trust the client's values for these three
+    columns — they're already in `survey` from the caller, untouched by
+    this function now. Commented out, not deleted, in case this needs to
+    come back.
+    """
     if plots_in is None:
         return
     survey.plots.clear()  # cascade="all, delete-orphan" removes the old rows on commit
@@ -720,17 +736,17 @@ def sync_plots(db: Session, survey: m.FarmerSurvey, plots_in):
             method=p.method,
             captured_at=now if points_json else None,
         ))
-    first = plots_in[0] if plots_in else None
-    if first and first.points:
-        survey.plot_boundary = json.dumps([pt.model_dump() for pt in first.points])
-        survey.plot_boundary_area_acres = first.area_acres
-        survey.plot_boundary_method = first.method
-        survey.plot_boundary_captured_at = now
-    else:
-        survey.plot_boundary = None
-        survey.plot_boundary_area_acres = None
-        survey.plot_boundary_method = None
-        survey.plot_boundary_captured_at = None
+    # first = plots_in[0] if plots_in else None
+    # if first and first.points:
+    #     survey.plot_boundary = json.dumps([pt.model_dump() for pt in first.points])
+    #     survey.plot_boundary_area_acres = first.area_acres
+    #     survey.plot_boundary_method = first.method
+    #     survey.plot_boundary_captured_at = now
+    # else:
+    #     survey.plot_boundary = None
+    #     survey.plot_boundary_area_acres = None
+    #     survey.plot_boundary_method = None
+    #     survey.plot_boundary_captured_at = None
 
 
 @app.post("/api/surveys", response_model=SurveyOut, tags=["Surveys"])
@@ -852,11 +868,22 @@ def update_survey_draft(
     survey = db.query(m.FarmerSurvey).get(survey_id)
     if not survey:
         raise HTTPException(status_code=404, detail="Survey not found")
-    if survey.status not in (None, "draft"):
+    if survey.status != "draft":
         # Never silently revert an already-submitted survey back to an
         # incomplete-looking draft — resuming a completed record should go
         # through the normal edit form (PUT /api/surveys/{id}), which keeps
         # SurveyIn's full validation.
+        #
+        # status is NULL for every row predating the `status` column (see
+        # models.py's FarmerSurvey.status comment: "NULL is treated as
+        # 'submitted' for backward compatibility ... unambiguously a
+        # completed survey, not a draft"). The previous `not in (None,
+        # "draft")` check treated NULL as draft-like instead — the exact
+        # opposite of what the model's own docs say — so this endpoint would
+        # silently flip a real submitted survey's status to "draft" and
+        # overwrite every field the payload didn't include with None.
+        # Verified against a live seeded survey: one PUT with a single field
+        # wiped mobile_no/age/gender/etc. on an otherwise-complete record.
         raise HTTPException(status_code=400, detail="This survey has already been submitted — edit it from the farmer record instead of Save as Draft.")
     data = payload.dict()
     data.pop("plots", None)  # not a FarmerSurvey column — handled via sync_plots (CR-17), using payload.plots below

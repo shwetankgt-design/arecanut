@@ -102,6 +102,10 @@ export async function pendingDraftCount(username: string): Promise<number> {
   return (await listQueuedDrafts(username)).length;
 }
 
+export async function failedDraftCount(username: string): Promise<number> {
+  return (await listQueuedDrafts(username)).filter((e) => e.status === "failed").length;
+}
+
 export async function deleteQueuedDraft(username: string, clientUuid: string): Promise<void> {
   await del(keyFor(username, clientUuid));
 }

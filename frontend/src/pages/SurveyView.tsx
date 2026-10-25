@@ -3,12 +3,13 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   CheckCircle2, Pencil, ArrowLeft, UserSearch, Handshake, MapPin, LandPlot, Wheat,
   Coins, Warehouse, TriangleAlert, Sprout, Wrench, Truck, Smartphone, CreditCard,
-  Landmark, Droplets, FlaskConical, ScanLine, Map, Trash2, History, AlertCircle,
+  Landmark, Droplets, FlaskConical, ScanLine, Map, Trash2, History, AlertCircle, Lock, LockOpen,
 } from "lucide-react";
 import { api } from "../api";
 import { useLang } from "../LangContext";
 import { trDistrict, trTaluka, trVillage } from "../i18n";
 import { useAuth } from "../AuthContext";
+import { Capacitor } from "@capacitor/core";
 
 const HOUSEHOLD_INCOME_BRACKET_LABELS: Record<string, string> = {
   "<10000": "Less than ₹10,000",
@@ -45,14 +46,51 @@ export default function SurveyView() {
   const justSaved = params.get("justSaved") === "1";
   const navigate = useNavigate();
   const { lang } = useLang();
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const [s, setS] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [fieldUsers, setFieldUsers] = useState<{ id: number; username: string; full_name: string; is_active: boolean }[]>([]);
+  const [assignMsg, setAssignMsg] = useState<string | null>(null);
+  const [freezeLog, setFreezeLog] = useState<any[]>([]);
+  const [freezeNote, setFreezeNote] = useState("");
+  const [freezeBusy, setFreezeBusy] = useState(false);
+  const canFreeze = (user?.role === "admin" || hasPermission("data_verifier")) && !Capacitor.isNativePlatform();
+  const loadFreezeLog = () => api.freezeLog(Number(id)).then(setFreezeLog).catch(() => {});
+  useEffect(() => { loadFreezeLog(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [id]);
+  const handleFreeze = async (frozen: boolean) => {
+    setFreezeBusy(true);
+    try {
+      await api.freezeSurvey(s.id, frozen, freezeNote);
+      setS({ ...s, is_frozen: frozen });
+      setFreezeNote("");
+      await loadFreezeLog();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setFreezeBusy(false);
+    }
+  };
 
   useEffect(() => {
     api.getSurvey(Number(id)).then(setS).catch((e) => setError(e.message));
   }, [id]);
+
+  useEffect(() => {
+    if (user?.role !== "admin") return;
+    api.listUsers().then((us: any[]) => setFieldUsers(us.filter((u) => u.role === "field" && u.is_active))).catch(() => {});
+  }, [user?.role]);
+
+  const handleAssign = async (value: string) => {
+    const userId = value ? Number(value) : null;
+    try {
+      await api.assignSurvey(s.id, userId);
+      setS({ ...s, assigned_to_user_id: userId });
+      setAssignMsg(userId ? "Assigned." : "Assignment cleared.");
+    } catch (e: any) {
+      setAssignMsg(e.message);
+    }
+  };
 
   const handleDelete = async () => {
     if (!s) return;
@@ -94,7 +132,7 @@ export default function SurveyView() {
           </button>
           {s.status !== "draft" && (
             <>
-              <button className="gt-btn-secondary flex items-center gap-1.5" onClick={() => navigate(`/farmers/${s.id}/plot-boundary`)}>
+              <button className="gt-btn-secondary flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed" disabled={!!s.is_frozen} title={s.is_frozen ? "Frozen — unfreeze to edit" : undefined} onClick={() => navigate(`/farmers/${s.id}/plot-boundary`)}>
                 <Map size={15} /> Plot Boundary
               </button>
               <button className="gt-btn-secondary flex items-center gap-1.5" onClick={() => navigate(`/farmers/${s.id}/history`)}>
@@ -102,7 +140,13 @@ export default function SurveyView() {
               </button>
             </>
           )}
-          <button className="gt-btn-primary flex items-center gap-1.5" onClick={() => navigate(`/entry/farmer?id=${s.id}`)}>
+          <button
+            className="gt-btn-primary flex items-center gap-1.5 disabled:cursor-not-allowed"
+            style={{ background: s.is_frozen ? "#DC2626" : "#16A34A" }}
+            disabled={!!s.is_frozen}
+            title={s.is_frozen ? "Frozen — unfreeze to edit" : "Not frozen"}
+            onClick={() => navigate(`/entry/farmer?id=${s.id}`)}
+          >
             <Pencil size={15} /> {s.status === "draft" ? "Continue Draft" : "Edit"}
           </button>
           {user?.role === "admin" && (
@@ -115,6 +159,63 @@ export default function SurveyView() {
             </button>
           )}
         </div>
+      </div>
+
+      {user?.role === "admin" && (
+        <div className="gt-card p-3 flex items-center gap-3 flex-wrap text-sm">
+          <span className="font-semibold text-[var(--gt-purple-dark)]">Assigned to</span>
+          <select
+            className="gt-input max-w-xs"
+            value={s.assigned_to_user_id ?? ""}
+            onChange={(e) => handleAssign(e.target.value)}
+          >
+            <option value="">— Not assigned (creator only) —</option>
+            {fieldUsers.map((u) => (
+              <option key={u.id} value={u.id}>{u.full_name} ({u.username})</option>
+            ))}
+          </select>
+          <span className="text-xs text-[var(--gt-text-muted)]">
+            Field users can view and edit only records they created or that are assigned to them.
+          </span>
+          {assignMsg && <span className="text-xs text-emerald-700">{assignMsg}</span>}
+        </div>
+      )}
+
+      {(s.is_frozen || canFreeze || freezeLog.length > 0) && (
+        <div className={`gt-card p-3 flex flex-col gap-2 text-sm ${s.is_frozen ? "border-sky-300" : ""}`}>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Lock size={15} className={s.is_frozen ? "text-sky-700" : "text-[var(--gt-text-muted)]"} />
+            <span className="font-semibold text-[var(--gt-purple-dark)]">{s.is_frozen ? "Frozen — verified, locked for the field team" : "Not frozen"}</span>
+            {canFreeze && s.status !== "draft" && (
+              <span className="flex items-center gap-2 ml-auto">
+                <input className="gt-input text-xs" placeholder="Note (optional)" value={freezeNote} maxLength={300} onChange={(e) => setFreezeNote(e.target.value)} />
+                <button className="gt-btn-secondary flex items-center gap-1.5" disabled={freezeBusy} onClick={() => handleFreeze(!s.is_frozen)}>
+                  {s.is_frozen ? <><LockOpen size={14} /> Unfreeze</> : <><Lock size={14} /> Freeze</>}
+                </button>
+              </span>
+            )}
+          </div>
+          {freezeLog.length > 0 && (
+            <div className="text-xs text-[var(--gt-text-muted)]">
+              <div className="font-medium mb-1">Freeze history</div>
+              {freezeLog.map((l) => (
+                <div key={l.id} className="py-0.5 border-t border-[var(--gt-border)]">
+                  <span className={l.action === "freeze" ? "text-sky-700 font-semibold" : "text-amber-700 font-semibold"}>{l.action === "freeze" ? "Frozen" : "Unfrozen"}</span>
+                  {" by "}{l.username}{" · "}{new Date(l.timestamp + "Z").toLocaleString()}{l.note ? ` · “${l.note}”` : ""}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="gt-card p-3 grid sm:grid-cols-2 gap-x-6 text-sm">
+        <Row label="Created by" value={s.created_by_name || (s.created_by_user_id ? `User #${s.created_by_user_id}` : s.enumerator_name)} />
+        <Row label="Created on" value={s.entry_timestamp ? new Date(s.entry_timestamp + "Z").toLocaleString() : null} />
+        <Row label="Created from device" value={s.device_id} />
+        <Row label="Last modified by" value={s.last_modified_by_name || (s.last_modified_by_user_id ? `User #${s.last_modified_by_user_id}` : null)} />
+        <Row label="Last modified on" value={s.last_modified_at ? new Date(s.last_modified_at + "Z").toLocaleString() : null} />
+        <Row label="Last modified from device" value={s.last_modified_device_id} />
       </div>
 
       {s.status === "draft" && (

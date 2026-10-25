@@ -618,6 +618,13 @@ export default function DataEntryWizard() {
           return;
         }
         api.getSurvey(surveyId).then((s: any) => {
+          if (s.is_frozen) {
+            // Frozen records are read-only for everyone — send them to the
+            // record page (which explains why) instead of letting the user fill
+            // in a whole form that the server will refuse to save.
+            navigate(`/farmers/${surveyId}`, { replace: true });
+            return;
+          }
           draftSurveyIdRef.current = surveyId;
           applyLoadedSurvey(s);
         });

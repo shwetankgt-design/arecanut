@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Search, X, CloudUpload, Download, ArrowUp, ArrowDown, ArrowUpDown, WifiOff } from "lucide-react";
+import { Search, X, CloudUpload, Download, ArrowUp, ArrowDown, ArrowUpDown, WifiOff, Lock, LockOpen } from "lucide-react";
+import { Capacitor } from "@capacitor/core";
 import { api } from "../api";
 import { useLang } from "../LangContext";
 import { tr, trDistrict, trTaluka, trVillage } from "../i18n";
@@ -36,7 +37,7 @@ export default function FarmerList() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { lang } = useLang();
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const justQueued = searchParams.get("queued") === "1";
   const sortBy = searchParams.get("sort_by") || "entry_timestamp";
   const sortDir = searchParams.get("sort_dir") === "asc" ? "asc" : "desc";
@@ -117,6 +118,45 @@ export default function FarmerList() {
     : [];
   const displayRows = [...visibleLocalDrafts, ...rows];
 
+  const [allUsers, setAllUsers] = useState<{ id: number; username: string; full_name: string; role: string }[]>([]);
+  useEffect(() => {
+    if (user?.role !== "admin") return;
+    api.listUsers().then((us: any[]) => setAllUsers(us.filter((u) => u.role === "field"))).catch(() => {});
+  }, [user?.role]);
+
+  const setParam = (key: string, value: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (value) next.set(key, value); else next.delete(key);
+    setSearchParams(next);
+  };
+  const selectedUserIds = (searchParams.get("user_ids") || "").split(",").filter(Boolean);
+  const toggleUser = (id: number) => {
+    const cur = new Set(selectedUserIds);
+    const key = String(id);
+    if (cur.has(key)) cur.delete(key); else cur.add(key);
+    setParam("user_ids", [...cur].join(","));
+  };
+  const userLabel = (idStr: string) => allUsers.find((u) => String(u.id) === idStr)?.full_name || `user ${idStr}`;
+
+  // Freeze/unfreeze is a web-only, admin/data-verifier feature.
+  const canFreeze = (user?.role === "admin" || hasPermission("data_verifier")) && !Capacitor.isNativePlatform();
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [freezeMsg, setFreezeMsg] = useState<string | null>(null);
+  const selectable = rows.filter((r) => r.status !== "draft");
+  const allSelected = selectable.length > 0 && selectable.every((r) => selected.has(r.id));
+  const toggleSelect = (id: number) => setSelected((cur) => { const n = new Set(cur); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const runFreeze = async (ids: number[], frozen: boolean) => {
+    setFreezeMsg(null);
+    try {
+      const res = await api.bulkFreeze(ids, frozen);
+      setFreezeMsg(`${res.changed} record(s) ${frozen ? "frozen" : "unfrozen"}${res.skipped ? `, ${res.skipped} unchanged` : ""}.`);
+      setSelected(new Set());
+      load();
+    } catch (e: any) {
+      setFreezeMsg(e.message);
+    }
+  };
+
   const clearFilters = () => {
     setSearchParams({});
     setQ("");
@@ -169,12 +209,63 @@ export default function FarmerList() {
         ))}
       </div>
 
+      {canFreeze && (
+        <div className="flex gap-2 items-center">
+          <span className="text-xs text-[var(--gt-text-muted)]">Verification:</span>
+          {[{ k: "", l: "All" }, { k: "true", l: "Frozen" }, { k: "false", l: "Not frozen" }].map((o) => (
+            <button key={o.k} onClick={() => setParam("frozen", o.k)}
+              className={`text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${(searchParams.get("frozen") || "") === o.k ? "gt-gradient text-white border-transparent shadow-sm" : "bg-white text-[var(--gt-text-muted)] border-[var(--gt-border)]"}`}>
+              {o.l}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {canFreeze && selected.size > 0 && (
+        <div className="flex items-center gap-2 bg-sky-50 border border-sky-200 text-sky-900 text-sm rounded-lg px-3 py-2">
+          <span className="font-medium">{selected.size} selected</span>
+          <button className="gt-btn-secondary flex items-center gap-1.5" onClick={() => runFreeze([...selected], true)}><Lock size={14} /> Freeze</button>
+          <button className="gt-btn-secondary flex items-center gap-1.5" onClick={() => runFreeze([...selected], false)}><LockOpen size={14} /> Unfreeze</button>
+          <button className="text-xs underline ml-auto" onClick={() => setSelected(new Set())}>Clear</button>
+        </div>
+      )}
+      {freezeMsg && <div className="text-xs bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg px-3 py-2">{freezeMsg}</div>}
+
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="text-xs text-[var(--gt-text-muted)] flex flex-col gap-1">
+          From date
+          <input type="date" className="gt-input" value={searchParams.get("date_from") || ""} max={searchParams.get("date_to") || undefined}
+            onChange={(e) => setParam("date_from", e.target.value)} />
+        </label>
+        <label className="text-xs text-[var(--gt-text-muted)] flex flex-col gap-1">
+          To date
+          <input type="date" className="gt-input" value={searchParams.get("date_to") || ""} min={searchParams.get("date_from") || undefined}
+            onChange={(e) => setParam("date_to", e.target.value)} />
+        </label>
+        {user?.role === "admin" && (
+          <details className="relative">
+            <summary className="gt-input cursor-pointer select-none list-none text-sm min-w-[12rem]">
+              {selectedUserIds.length ? `${selectedUserIds.length} user(s) selected` : "All users"}
+            </summary>
+            <div className="absolute z-20 mt-1 w-64 max-h-64 overflow-auto bg-white border border-[var(--gt-border)] rounded-lg shadow-lg p-2 flex flex-col gap-1">
+              {allUsers.map((u) => (
+                <label key={u.id} className="flex items-center gap-2 text-sm px-1 py-0.5 cursor-pointer">
+                  <input type="checkbox" checked={selectedUserIds.includes(String(u.id))} onChange={() => toggleUser(u.id)} />
+                  {u.full_name} <span className="text-[var(--gt-text-muted)]">({u.username})</span>
+                </label>
+              ))}
+              {allUsers.length === 0 && <span className="text-xs text-[var(--gt-text-muted)] p-1">No field users</span>}
+            </div>
+          </details>
+        )}
+      </div>
+
       {activeFilters.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs text-[var(--gt-text-muted)] font-medium">{tr("filteredBy", lang)}:</span>
           {activeFilters.map(([key, value]) => (
             <span key={key} className="gt-chip active !cursor-default text-xs px-2.5 py-1">
-              {key.replace(/_/g, " ")}: {value}
+              {key === "user_ids" ? `users: ${value.split(",").map(userLabel).join(", ")}` : `${key.replace(/_/g, " ")}: ${value}`}
               <X size={12} className="cursor-pointer" onClick={() => removeFilter(key)} />
             </span>
           ))}
@@ -211,6 +302,11 @@ export default function FarmerList() {
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-[var(--gt-text-muted)] border-b border-[var(--gt-border)]">
+              {canFreeze && (
+                <th className="p-3 w-8">
+                  <input type="checkbox" checked={allSelected} onChange={() => setSelected(allSelected ? new Set() : new Set(selectable.map((r) => r.id)))} />
+                </th>
+              )}
               {SORT_COLUMNS.map(({ key, label }) => (
                 <th key={key} className="p-3 cursor-pointer select-none hover:text-[var(--gt-purple-dark)]" onClick={() => toggleSort(key)}>
                   <span className="inline-flex items-center gap-1">
@@ -231,11 +327,23 @@ export default function FarmerList() {
                 className="border-b border-[var(--gt-border)] hover:bg-[#F6F4F9] cursor-pointer"
                 onClick={() => navigate(r.localOnly ? editHref : `/farmers/${r.id}`)}
               >
+                {canFreeze && (
+                  <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                    {!r.localOnly && r.status !== "draft" && (
+                      <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSelect(r.id)} />
+                    )}
+                  </td>
+                )}
                 <td className="p-3">
                   <div className="font-medium flex items-center gap-1.5">
                     {r.farmer_name || <span className="text-[var(--gt-text-muted)]">Untitled draft</span>}
                     {r.status === "draft" && (
                       <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full">DRAFT</span>
+                    )}
+                    {r.is_frozen && (
+                      <span className="flex items-center gap-0.5 text-[10px] font-semibold text-sky-700 bg-sky-100 px-1.5 py-0.5 rounded-full">
+                        <Lock size={9} /> FROZEN
+                      </span>
                     )}
                     {r.localOnly && (
                       <span className="flex items-center gap-0.5 text-[10px] font-semibold text-[var(--gt-text-muted)] bg-[#F1EBF7] px-1.5 py-0.5 rounded-full">
@@ -252,20 +360,34 @@ export default function FarmerList() {
                 <td className="p-3 font-semibold text-[var(--gt-purple-dark)]">
                   {r.total_income_inr != null ? r.total_income_inr.toLocaleString("en-IN") : "—"}
                 </td>
-                <td className="p-3">
-                  <button
-                    className="text-[var(--gt-purple)] text-xs font-semibold underline"
-                    onClick={(e) => { e.stopPropagation(); navigate(editHref); }}
-                  >
-                    {r.status === "draft" ? "Continue" : tr("edit", lang)}
-                  </button>
+                <td className="p-3 whitespace-nowrap">
+                  {r.is_frozen ? (
+                    <span className="text-xs font-semibold text-red-600 cursor-not-allowed inline-flex items-center gap-1" title="Frozen — unfreeze to edit" onClick={(e) => e.stopPropagation()}>
+                      <Lock size={12} /> Edit
+                    </span>
+                  ) : (
+                    <button
+                      className="text-xs font-semibold underline text-green-600"
+                      onClick={(e) => { e.stopPropagation(); navigate(editHref); }}
+                    >
+                      {r.status === "draft" ? "Continue" : tr("edit", lang)}
+                    </button>
+                  )}
+                  {canFreeze && !r.localOnly && r.status !== "draft" && (
+                    <button
+                      className="ml-3 text-xs font-semibold text-sky-700 underline"
+                      onClick={(e) => { e.stopPropagation(); runFreeze([r.id], !r.is_frozen); }}
+                    >
+                      {r.is_frozen ? "Unfreeze" : "Freeze"}
+                    </button>
+                  )}
                 </td>
               </tr>
               );
             })}
             {displayRows.length === 0 && (
               <tr>
-                <td colSpan={7} className="p-6 text-center text-[var(--gt-text-muted)]">{tr("noRecords", lang)}</td>
+                <td colSpan={8} className="p-6 text-center text-[var(--gt-text-muted)]">{tr("noRecords", lang)}</td>
               </tr>
             )}
           </tbody>

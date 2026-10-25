@@ -53,6 +53,7 @@ class UserAdminOut(BaseModel):
     email: Optional[str] = None
     role: str
     permissions: List[str] = []
+    mapped_user_ids: List[int] = []
     is_active: bool
     created_at: datetime
     locked_until: Optional[datetime] = None
@@ -75,6 +76,7 @@ class UserCreateIn(BaseModel):
     password: str = Field(..., min_length=1, max_length=200)
     role: str = Field(..., max_length=10)
     permissions: List[str] = []
+    mapped_user_ids: List[int] = []  # required when the data_verifier module is granted
 
     @field_validator("role")
     @classmethod
@@ -98,6 +100,7 @@ class UserUpdateIn(BaseModel):
     email: Optional[str] = Field(None, max_length=200)
     role: Optional[str] = Field(None, max_length=10)
     permissions: Optional[List[str]] = None
+    mapped_user_ids: Optional[List[int]] = None
     is_active: Optional[bool] = None
     new_password: Optional[str] = Field(None, min_length=1, max_length=200)
 

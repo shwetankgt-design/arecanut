@@ -23,6 +23,21 @@ class User(Base):
     locked_until = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     created_by_user_id = Column(Integer, ForeignKey("auth_user.id"), nullable=True)
+    # Users holding the "data_verifier" module additionally see/edit/freeze the
+    # records of these mapped users (see owned_by() in main.py).
+    mapping_links = relationship("UserMapping", cascade="all, delete-orphan", foreign_keys="UserMapping.user_id")
+
+    @property
+    def mapped_user_ids(self):
+        return [l.mapped_user_id for l in self.mapping_links]
+
+
+class UserMapping(Base):
+    __tablename__ = "user_mapping"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("auth_user.id"), nullable=False, index=True)
+    mapped_user_id = Column(Integer, ForeignKey("auth_user.id"), nullable=False, index=True)
+    mapped_user = relationship("User", foreign_keys=[mapped_user_id])
 
 
 class PasswordResetToken(Base):
@@ -330,6 +345,21 @@ class FarmerSurvey(Base):
     field_photo = Column(Text, nullable=True)  # base64 data URL of the compressed field photo
     enumerator_name = Column(String, nullable=True)
     created_by_user_id = Column(Integer, ForeignKey("auth_user.id"), nullable=True)
+    # Admin-assigned owner: a field user can see/edit a record they created OR
+    # one assigned to them here. NULL = not assigned (creator-only access).
+    assigned_to_user_id = Column(Integer, ForeignKey("auth_user.id"), nullable=True, index=True)
+    # Audit trail — server-set from the authenticated session/request, never
+    # accepted from the payload. device_id = device that created the record,
+    # last_modified_* = most recent edit (entry_timestamp is the created time).
+    device_id = Column(String, nullable=True)
+    last_modified_by_user_id = Column(Integer, ForeignKey("auth_user.id"), nullable=True)
+    last_modified_at = Column(DateTime, nullable=True)
+    last_modified_device_id = Column(String, nullable=True)
+    # Freeze (data-verifier lock). NULL is treated as not frozen. A frozen
+    # record cannot be edited by field users without the data_verifier module.
+    is_frozen = Column(Boolean, nullable=True, default=False)
+    frozen_by_user_id = Column(Integer, ForeignKey("auth_user.id"), nullable=True)
+    frozen_at = Column(DateTime, nullable=True)
     client_uuid = Column(String, unique=True, nullable=True, index=True)  # dedupes offline-queued submissions
 
     # Plot Boundary Capture (v2): ordered polygon vertices as JSON text
@@ -581,3 +611,18 @@ class FPOConsultation(Base):
     q72_board_resolution = Column(String, nullable=True)
     signature = Column(String, nullable=True)
     signature_date = Column(String, nullable=True)
+
+
+class SurveyFreezeLog(Base):
+    """Append-only history of every freeze/unfreeze transition. survey_id is
+    deliberately not a foreign key so the history outlives a deleted survey."""
+    __tablename__ = "survey_freeze_log"
+    id = Column(Integer, primary_key=True)
+    survey_id = Column(Integer, nullable=False, index=True)
+    farmer_id = Column(String, nullable=True)
+    action = Column(String, nullable=False)  # "freeze" | "unfreeze"
+    user_id = Column(Integer, ForeignKey("auth_user.id"), nullable=True)
+    username = Column(String, nullable=True)
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+    device_id = Column(String, nullable=True)
+    note = Column(String, nullable=True)

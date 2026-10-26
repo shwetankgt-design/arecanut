@@ -1,6 +1,8 @@
 // In the browser dev server, relative "/api" works via the Vite proxy.
 // Packaged into the Android app there's no dev-server proxy, so the mobile
 // build is compiled with VITE_API_BASE pointing at the backend's real host.
+import { getDeviceId } from "./lib/deviceId";
+
 const BASE = import.meta.env.VITE_API_BASE || "/api";
 const TOKEN_KEY = "gt_token";
 const REFRESH_KEY = "gt_refresh_token";
@@ -78,9 +80,11 @@ async function rawFetch(path: string, options?: RequestInit, token?: string | nu
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
+    const deviceId = await getDeviceId();
     return await fetch(`${BASE}${path}`, {
       headers: {
         "Content-Type": "application/json",
+        "X-Device-Id": deviceId,
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       signal: controller.signal,
@@ -203,6 +207,13 @@ export const api = {
   getSurvey: (id: number) => req(`/surveys/${id}`),
   createSurvey: (data: any) => req("/surveys", { method: "POST", body: JSON.stringify(data) }),
   updateSurvey: (id: number, data: any) => req(`/surveys/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  assignSurvey: (id: number, userId: number | null) =>
+    req(`/surveys/${id}/assign`, { method: "PUT", body: JSON.stringify({ user_id: userId }) }),
+  freezeSurvey: (id: number, frozen: boolean, note?: string) =>
+    req(`/surveys/${id}/freeze`, { method: "PUT", body: JSON.stringify({ frozen, note: note || null }) }),
+  bulkFreeze: (surveyIds: number[], frozen: boolean, note?: string) =>
+    req(`/surveys/freeze`, { method: "POST", body: JSON.stringify({ survey_ids: surveyIds, frozen, note: note || null }) }),
+  freezeLog: (id: number) => req(`/surveys/${id}/freeze-log`),
   deleteSurvey: (id: number) => req(`/surveys/${id}`, { method: "DELETE" }),
   // Save as Draft: unlike createSurvey/updateSurvey, the backend applies no
   // completeness validation to these — a draft can be (and usually is)

@@ -136,6 +136,8 @@ All five actions are audit-logged (`master_data_create`/`master_data_update`/`ma
 | POST `/surveys` | `survey_entry` |
 | PUT `/surveys/{id}` | `farmer_records` |
 | DELETE `/surveys/{id}` | `admin` only |
+| PUT `/surveys/{id}/assign` | `admin` only — body `{user_id}` (null clears) |
+| POST `/surveys/assign` | `admin` only — body `{survey_ids, user_id}` bulk assign |
 | GET `/surveys/{id}/plot-boundary` | `plots_map` |
 | PUT `/surveys/{id}/plot-boundary` | `plots_map` |
 | DELETE `/surveys/{id}/plot-boundary` | `plots_map` |
@@ -191,3 +193,24 @@ prop (passes if the user has *any* of the listed modules) so the landing
 page itself is reachable by a user who has either permission, while each
 destination page still gates on its own specific one. `/fpo-consultations`
 lists drafts (resumable) and submitted consultations.
+
+
+## Record-level ownership (field users)
+
+On top of module permissions, a **field** user only sees/edits survey records they own. Applies to list, export, get, update, draft save, plot-boundary get/put/delete and `/plots`. A record is owned if `created_by_user_id` = user, OR `assigned_to_user_id` = user (set by admin via the assign endpoints), OR it is a legacy row with no creator id whose `enumerator_name` equals the user's `full_name`. Others return 404 (not 403). Admin is unscoped. `/dashboard/kpis` and `/dashboard/yield-benchmarks` are scoped the same way for field users (admin sees global). Helper: `scoped_surveys(db, user)`. Implemented by `owned_by()` / `get_owned_survey()` in `backend/app/main.py`.
+
+## List/export filters: date and user
+
+`GET /surveys` and `GET /surveys/export` accept `date_from` / `date_to` (YYYY-MM-DD, inclusive, on `entry_timestamp`; any user) and `user_ids` (comma-separated user ids; **admin only**, 403 otherwise, 400 if malformed). `user_ids` returns records owned by ANY selected user under the same ownership rule as above (creator, assignee, legacy name match). UI: date pickers + admin user multi-select on the Farmer Records page (`FarmerList.tsx`, filters live in the URL).
+
+## Audit trail fields (survey records)
+
+Server-set, never accepted from the payload: `created_by_user_id`, `entry_timestamp` (created at), `device_id` (created from), `last_modified_by_user_id`, `last_modified_at`, `last_modified_device_id` (stamped on update, draft save, plot-boundary save/delete, assign). Device id comes from the `X-Device-Id` request header sent by the frontend (`frontend/src/lib/deviceId.ts`): native Android app = `android:<real device id>` (via @capacitor/device); browser = random per-browser UUID, stored by the server as `web:<uuid>|<client ip>` (IP from X-Forwarded-For first hop, else socket). `GET /surveys/{id}` also returns `created_by_name` / `last_modified_by_name`; shown on the record view page. `X-Device-Id` is in the CORS allow-list — **deploy the backend before any frontend/APK that sends it**, or cross-origin requests fail preflight. Offline-queued saves report the device/IP at sync time, not entry time.
+
+## Data Verifier module, user mapping, freeze/unfreeze
+
+- **Module `data_verifier`** — a permission checkbox in User Management (same mechanism as `survey_entry`, `farmer_records`...), granted to a `field` user. When granted, the admin must also map the user to ≥1 other field users (`mapped_user_ids` on `POST /users` / `PUT /users/{id}`, shown as a multi-select of users in the form; mapping is cleared when the module is removed). A verifier sees/edits/freezes records owned by their mapped users **plus their own** (confirmed by the user), via `owned_by()` — so list, export, view, edit, plots map and dashboard are all scoped that way. A mapped user's records = created by, assigned to, or legacy name-match for that user.
+- **Freeze:** `PUT /surveys/{id}/freeze {frozen, note}` and `POST /surveys/freeze {survey_ids, frozen, note}` (bulk, max 500) — require `data_verifier` (admin always). Drafts cannot be frozen. Re-freezing an already frozen record is a no-op and is NOT logged; every real transition is. **Web only:** requests with `X-Device-Id: android:...` get 403; UI hides the controls in the native app.
+- **Lock:** a frozen record is **read-only for everyone, admin included** — edits (update, draft save, plot-boundary save/delete) return **423** until it is unfrozen. Only freeze/unfreeze and admin assignment still work on a frozen record. Freezing changes no survey data. UI: Edit is shown red and disabled while frozen, green when not.
+- **Audit:** every transition writes a `survey_freeze_log` row (survey_id, farmer_id, action, user, timestamp, device_id, note; survey_id is not an FK so history survives deletion) plus an `audit_log` entry (`survey_freeze`/`survey_unfreeze`). `GET /surveys/{id}/freeze-log` returns the history (shown on the record page). List/export accept `frozen=true|false`. Admin's `user_ids` filter matches a user's OWN records only (not their mapped ones).
+- (An earlier same-day design used a separate `verifier` role mapped by village; it was replaced by this module + user mapping before any commit/deploy.)

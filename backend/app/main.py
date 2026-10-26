@@ -10,7 +10,8 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_, and_, tuple_, false
+from pydantic import BaseModel, Field
 import datetime
 
 from .config import get_settings
@@ -94,7 +95,7 @@ app.add_middleware(
     # isn't needed — and keeping it off lets "*" work as an origin in dev.
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-Device-Id"],
 )
 
 app.include_router(master_data_router)
@@ -176,6 +177,18 @@ def get_permission_modules(admin: m.User = Depends(require_role("admin"))):
     return PERMISSION_MODULES
 
 
+def _set_user_mappings(db: Session, user: m.User, mapped_ids: list[int]) -> None:
+    """Replace the users whose records a data verifier may see. Without at
+    least one mapped user a verifier would only ever see their own records."""
+    ids = sorted(set(mapped_ids) - {user.id})
+    if not ids:
+        raise HTTPException(status_code=400, detail="A data verifier must be mapped to at least one other user.")
+    found = {u.id for u in db.query(m.User.id).filter(m.User.id.in_(ids), m.User.role == "field")}
+    if found != set(ids):
+        raise HTTPException(status_code=400, detail="Mapped users must be existing field-team users.")
+    user.mapping_links = [m.UserMapping(mapped_user_id=i) for i in ids]
+
+
 @app.post("/api/users", response_model=UserAdminOut, tags=["Users"])
 def create_user(
     request: Request,
@@ -201,9 +214,11 @@ def create_user(
         email=payload.email,
         password_hash=hash_password(payload.password),
         role=payload.role,
-        permissions=",".join(payload.permissions) if payload.role == "field" else None,
+        permissions=",".join(payload.permissions) if payload.role != "admin" else None,
         created_by_user_id=admin.id,
     )
+    if payload.role == "field" and "data_verifier" in payload.permissions:
+        _set_user_mappings(db, user, payload.mapped_user_ids)
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -241,6 +256,11 @@ def update_user(
         user.email = payload.email
     if payload.permissions is not None:
         user.permissions = ",".join(payload.permissions)
+    if user.role == "field" and "data_verifier" in (user.permissions or "").split(","):
+        if payload.mapped_user_ids is not None or not user.mapping_links:
+            _set_user_mappings(db, user, payload.mapped_user_ids or [])
+    else:
+        user.mapping_links = []
     if payload.is_active is not None:
         user.is_active = payload.is_active
     if payload.new_password:
@@ -460,18 +480,130 @@ SORTABLE_FIELDS = {
 }
 
 
+def resolve_device_id(request: Request) -> Optional[str]:
+    """
+    Device identifier for the audit trail, from the X-Device-Id header.
+    "android:<id>" (real device id from the native app) is kept as-is.
+    Anything else is a browser: its random per-browser id is combined with
+    the caller's IP ("web:<id>|<ip>"). The IP comes from X-Forwarded-For's
+    first hop when present (Azure/Vercel sit behind a proxy), so it is as
+    trustworthy as that header — fine for an audit trail, not for security.
+    """
+    raw = (request.headers.get("x-device-id") or "").strip()[:100]
+    if not raw:
+        return None
+    if raw.startswith("android:"):
+        return raw
+    fwd = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    ip = fwd or (request.client.host if request.client else "unknown")
+    return f"web:{raw.removeprefix('web:')}|{ip}"
+
+
+def stamp_modified(survey: m.FarmerSurvey, user: m.User, request: Request) -> None:
+    survey.last_modified_by_user_id = user.id
+    survey.last_modified_at = datetime.datetime.utcnow()
+    survey.last_modified_device_id = resolve_device_id(request)
+
+
+def assert_editable(survey: m.FarmerSurvey, user: m.User) -> None:
+    """A frozen record is read-only for EVERYONE, admin included — it must be
+    unfrozen (by a data verifier or admin) before any edit. Freeze/unfreeze
+    and admin assignment are the only things still allowed on a frozen record."""
+    if survey.is_frozen:
+        raise HTTPException(status_code=423, detail="This record is frozen and cannot be edited. Unfreeze it first.")
+
+
+
+def _own_condition(user: m.User):
+    """Records this single user owns: created by them, assigned to them, or a
+    legacy row with no creator id whose enumerator_name matches their name."""
+    F = m.FarmerSurvey
+    return or_(
+        F.created_by_user_id == user.id,
+        F.assigned_to_user_id == user.id,
+        and_(F.created_by_user_id.is_(None), F.enumerator_name == user.full_name),
+    )
+
+
+def is_data_verifier(user: m.User) -> bool:
+    return user.role == "admin" or "data_verifier" in (user.permissions or "").split(",")
+
+
+def owned_by(user: m.User):
+    """
+    Record-level access rule for field users: a survey is visible/editable
+    only if they own it (see _own_condition) — plus, when they hold the
+    data_verifier module, anything owned by a user they are mapped to.
+    Admin sees everything — returns None (no filter).
+    """
+    if user.role == "admin":
+        return None
+    conds = [_own_condition(user)]
+    if "data_verifier" in (user.permissions or "").split(","):
+        conds += [_own_condition(l.mapped_user) for l in user.mapping_links]
+    return or_(*conds)
+
+
+def scoped_surveys(db: Session, user: m.User):
+    """Query of the surveys this user may see (all of them for admin)."""
+    q = db.query(m.FarmerSurvey)
+    cond = owned_by(user)
+    return q if cond is None else q.filter(cond)
+
+
+def _admin_only_user_ids(user: m.User, user_ids: Optional[str]) -> Optional[str]:
+    if user_ids and user.role != "admin":
+        raise HTTPException(status_code=403, detail="Filtering by user is admin-only")
+    return user_ids
+
+
+def get_owned_survey(db: Session, survey_id: int, user: m.User) -> m.FarmerSurvey:
+    """404 (not 403) for a record the user can't access, so existence isn't leaked."""
+    cond = owned_by(user)
+    q = db.query(m.FarmerSurvey).filter(m.FarmerSurvey.id == survey_id)
+    if cond is not None:
+        q = q.filter(cond)
+    survey = q.first()
+    if not survey:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    return survey
+
+
 def build_survey_query(
     db: Session, q, farmer_id, district, taluka, village, society_assoc, sale_type,
     marketing_channel, sale_month, storage_source, logistics_provider, credit_linkage,
     credit_source, scheme_availed, scheme_name, soil_test_done, crop_insurance,
     input_source, input_challenges, tech_adoption, society_benefits,
     cultivation_challenges, irrigation_source, mech_owned, mech_rented,
-    sort_by, sort_dir, status=None,
+    sort_by, sort_dir, status=None, user=None,
+    date_from=None, date_to=None, user_ids=None, frozen=None,
 ):
     """Shared by GET /api/surveys and GET /api/surveys/export (CR-19) so the
     export always reflects exactly the filters/sort the list view is
     currently showing, never a second, independently-maintained copy."""
     query = db.query(m.FarmerSurvey)
+    if user is not None:
+        cond = owned_by(user)
+        if cond is not None:
+            query = query.filter(cond)
+    if frozen is True:
+        query = query.filter(m.FarmerSurvey.is_frozen == True)  # noqa: E712
+    elif frozen is False:
+        query = query.filter(or_(m.FarmerSurvey.is_frozen == False, m.FarmerSurvey.is_frozen.is_(None)))  # noqa: E712
+    if date_from:
+        query = query.filter(m.FarmerSurvey.entry_timestamp >= datetime.datetime.combine(date_from, datetime.time.min))
+    if date_to:
+        query = query.filter(m.FarmerSurvey.entry_timestamp < datetime.datetime.combine(date_to + datetime.timedelta(days=1), datetime.time.min))
+    if user_ids:
+        # Admin-only (enforced by callers): records belonging to ANY of the
+        # selected users, using the same ownership rule field users are held to.
+        try:
+            ids = [int(x) for x in user_ids.split(",") if x.strip()]
+        except ValueError:
+            raise HTTPException(status_code=400, detail="user_ids must be comma-separated integers")
+        picked = db.query(m.User).filter(m.User.id.in_(ids)).all()
+        conds = [_own_condition(u) for u in picked]
+        query = query.filter(or_(*conds)) if conds else query.filter(False)
     if farmer_id:
         query = query.filter(m.FarmerSurvey.farmer_id == farmer_id)  # CR-18: Farmer History view
     if status == "draft":
@@ -520,6 +652,7 @@ def serialize_survey(s: m.FarmerSurvey) -> dict:
     """
     data = {c.name: getattr(s, c.name) for c in m.FarmerSurvey.__table__.columns}
     data["status"] = s.status or "submitted"
+    data["is_frozen"] = bool(s.is_frozen)
     data["plots"] = [serialize_plot(p) for p in s.plots]
     return data
 
@@ -554,6 +687,10 @@ def list_surveys(
     sort_by: Optional[str] = None,
     sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
     status: Optional[str] = Query(None, pattern="^(draft|submitted)$"),  # Save as Draft
+    date_from: Optional[datetime.date] = None,
+    date_to: Optional[datetime.date] = None,
+    user_ids: Optional[str] = None,
+    frozen: Optional[bool] = None,
     limit: int = Query(500, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -565,7 +702,8 @@ def list_surveys(
         credit_source, scheme_availed, scheme_name, soil_test_done, crop_insurance,
         input_source, input_challenges, tech_adoption, society_benefits,
         cultivation_challenges, irrigation_source, mech_owned, mech_rented,
-        sort_by, sort_dir, status,
+        sort_by, sort_dir, status, user=user,
+        date_from=date_from, date_to=date_to, user_ids=_admin_only_user_ids(user, user_ids), frozen=frozen,
     )
     # capped result size + offset — prevents a single request from pulling the
     # entire table (OWASP API4:2023 Unrestricted Resource Consumption)
@@ -603,6 +741,10 @@ def export_surveys(
     mech_rented: Optional[str] = None,
     sort_by: Optional[str] = None,
     sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
+    date_from: Optional[datetime.date] = None,
+    date_to: Optional[datetime.date] = None,
+    user_ids: Optional[str] = None,
+    frozen: Optional[bool] = None,
     db: Session = Depends(get_db),
     user: m.User = Depends(require_permission("farmer_records")),
 ):
@@ -614,7 +756,8 @@ def export_surveys(
         credit_source, scheme_availed, scheme_name, soil_test_done, crop_insurance,
         input_source, input_challenges, tech_adoption, society_benefits,
         cultivation_challenges, irrigation_source, mech_owned, mech_rented,
-        sort_by, sort_dir,
+        sort_by, sort_dir, user=user,
+        date_from=date_from, date_to=date_to, user_ids=_admin_only_user_ids(user, user_ids), frozen=frozen,
     )
     # A higher cap than the UI list's 500/1000 (exports are an explicit, one-off
     # action rather than a page someone repeatedly reloads) but still capped —
@@ -648,10 +791,13 @@ def export_surveys(
 
 @app.get("/api/surveys/{survey_id}", response_model=None)
 def get_survey(survey_id: int, db: Session = Depends(get_db), user: m.User = Depends(require_any_permission("survey_entry", "farmer_records"))):
-    s = db.query(m.FarmerSurvey).get(survey_id)
-    if not s:
-        raise HTTPException(status_code=404, detail="Survey not found")
-    return serialize_survey(s)
+    s = get_owned_survey(db, survey_id, user)
+    data = serialize_survey(s)
+    names = {u.id: (u.full_name, u.username) for u in db.query(m.User).filter(
+        m.User.id.in_([i for i in (s.created_by_user_id, s.last_modified_by_user_id, s.assigned_to_user_id) if i]))}
+    data["created_by_name"] = names.get(s.created_by_user_id, (None,))[0]
+    data["last_modified_by_name"] = names.get(s.last_modified_by_user_id, (None,))[0]
+    return data
 
 
 def compute_income(payload: SurveyIn) -> float:
@@ -761,6 +907,8 @@ def create_survey(
     if payload.client_uuid:
         existing = db.query(m.FarmerSurvey).filter(m.FarmerSurvey.client_uuid == payload.client_uuid).first()
         if existing:
+            if owned_by(user) is not None and existing.created_by_user_id != user.id and existing.assigned_to_user_id != user.id:
+                raise HTTPException(status_code=409, detail="client_uuid already used")
             return existing
 
     data = payload.dict()
@@ -769,6 +917,7 @@ def create_survey(
     data["total_income_inr"] = compute_income(payload)
     data["entry_timestamp"] = datetime.datetime.utcnow()
     data["created_by_user_id"] = user.id
+    data["device_id"] = resolve_device_id(request)
     if not data.get("farmer_id"):
         data["farmer_id"] = generate_farmer_id(db)
     if not data.get("survey_year"):
@@ -799,9 +948,8 @@ def update_survey(
     # also never used to be able to succeed for this exact user).
     user: m.User = Depends(require_any_permission("survey_entry", "farmer_records")),
 ):
-    survey = db.query(m.FarmerSurvey).get(survey_id)
-    if not survey:
-        raise HTTPException(status_code=404, detail="Survey not found")
+    survey = get_owned_survey(db, survey_id, user)
+    assert_editable(survey, user)
     data = payload.dict()
     plots_in = data.pop("plots", None)  # not a FarmerSurvey column — handled via sync_plots (CR-17)
     data["status"] = "submitted"  # finalizes a draft (or no-ops if it was already submitted) — a full SurveyIn payload is always complete
@@ -818,6 +966,7 @@ def update_survey(
         data["plot_boundary_captured_at"] = datetime.datetime.utcnow()
     for k, v in data.items():
         setattr(survey, k, v)
+    stamp_modified(survey, user, request)
     sync_plots(db, survey, payload.plots)
     db.commit()
     db.refresh(survey)
@@ -847,6 +996,7 @@ def create_survey_draft(
     data["status"] = "draft"
     data["entry_timestamp"] = datetime.datetime.utcnow()
     data["created_by_user_id"] = user.id
+    data["device_id"] = resolve_device_id(request)
     survey = m.FarmerSurvey(**data)
     db.add(survey)
     db.flush()
@@ -865,9 +1015,8 @@ def update_survey_draft(
     db: Session = Depends(get_db),
     user: m.User = Depends(require_permission("survey_entry")),
 ):
-    survey = db.query(m.FarmerSurvey).get(survey_id)
-    if not survey:
-        raise HTTPException(status_code=404, detail="Survey not found")
+    survey = get_owned_survey(db, survey_id, user)
+    assert_editable(survey, user)
     if survey.status != "draft":
         # Never silently revert an already-submitted survey back to an
         # incomplete-looking draft — resuming a completed record should go
@@ -890,6 +1039,7 @@ def update_survey_draft(
     data["status"] = "draft"
     for k, v in data.items():
         setattr(survey, k, v)
+    stamp_modified(survey, user, request)
     sync_plots(db, survey, payload.plots)
     db.commit()
     db.refresh(survey)
@@ -913,15 +1063,144 @@ def delete_survey(
     return {"ok": True}
 
 
+class SurveyAssignIn(BaseModel):
+    user_id: Optional[int] = None  # None clears the assignment
+
+
+class SurveyBulkAssignIn(SurveyAssignIn):
+    survey_ids: list[int] = Field(min_length=1, max_length=1000)
+
+
+def _validate_assignee(db: Session, user_id: Optional[int]) -> None:
+    if user_id is None:
+        return
+    target = db.query(m.User).get(user_id)
+    if not target or not target.is_active or target.role != "field":
+        raise HTTPException(status_code=400, detail="Assignee must be an active field user")
+
+
+@app.put("/api/surveys/{survey_id}/assign", response_model=None, tags=["Surveys"])
+def assign_survey(
+    survey_id: int,
+    payload: SurveyAssignIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: m.User = Depends(require_role("admin")),
+):
+    survey = db.query(m.FarmerSurvey).get(survey_id)
+    if not survey:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    _validate_assignee(db, payload.user_id)
+    survey.assigned_to_user_id = payload.user_id
+    stamp_modified(survey, user, request)
+    db.commit()
+    audit(db, request, "survey_assign", user=user, resource=f"survey:{survey_id}", detail=f"assigned_to={payload.user_id}")
+    return {"ok": True, "survey_id": survey_id, "assigned_to_user_id": payload.user_id}
+
+
+@app.post("/api/surveys/assign", response_model=None, tags=["Surveys"])
+def bulk_assign_surveys(
+    payload: SurveyBulkAssignIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: m.User = Depends(require_role("admin")),
+):
+    _validate_assignee(db, payload.user_id)
+    n = db.query(m.FarmerSurvey).filter(m.FarmerSurvey.id.in_(payload.survey_ids)).update(
+        {m.FarmerSurvey.assigned_to_user_id: payload.user_id}, synchronize_session=False)
+    db.commit()
+    audit(db, request, "survey_bulk_assign", user=user, detail=f"{n} surveys -> user {payload.user_id}")
+    return {"ok": True, "updated": n}
+
+
+# ---------------- FREEZE / UNFREEZE (data verification lock) ----------------
+
+class SurveyFreezeIn(BaseModel):
+    frozen: bool
+    note: Optional[str] = Field(None, max_length=300)
+
+
+class SurveyBulkFreezeIn(SurveyFreezeIn):
+    survey_ids: list[int] = Field(min_length=1, max_length=500)
+
+
+def _web_only(request: Request) -> None:
+    dev = request.headers.get("x-device-id", "")
+    if dev.startswith("android:"):
+        raise HTTPException(status_code=403, detail="Freeze/unfreeze is available on the web application only.")
+
+
+def _apply_freeze(db: Session, request: Request, survey: m.FarmerSurvey, user: m.User, frozen: bool, note: Optional[str]) -> bool:
+    """Flip the freeze flag and log the transition. Returns False (and logs
+    nothing) when the record is already in the requested state or is a draft."""
+    if survey.status == "draft" or bool(survey.is_frozen) == frozen:
+        return False
+    now = datetime.datetime.utcnow()
+    survey.is_frozen = frozen
+    survey.frozen_by_user_id = user.id if frozen else None
+    survey.frozen_at = now if frozen else None
+    db.add(m.SurveyFreezeLog(
+        survey_id=survey.id, farmer_id=survey.farmer_id,
+        action="freeze" if frozen else "unfreeze",
+        user_id=user.id, username=user.username, timestamp=now,
+        device_id=resolve_device_id(request), note=(note or None),
+    ))
+    audit(db, request, "survey_freeze" if frozen else "survey_unfreeze", user=user,
+          resource=f"survey:{survey.id}", detail=note)
+    return True
+
+
+@app.put("/api/surveys/{survey_id}/freeze", response_model=None, tags=["Surveys"])
+def freeze_survey(
+    survey_id: int,
+    payload: SurveyFreezeIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: m.User = Depends(require_permission("data_verifier")),
+):
+    _web_only(request)
+    survey = get_owned_survey(db, survey_id, user)
+    if survey.status == "draft":
+        raise HTTPException(status_code=400, detail="A draft cannot be frozen — it has not been submitted yet.")
+    changed = _apply_freeze(db, request, survey, user, payload.frozen, payload.note)
+    db.commit()
+    return {"ok": True, "changed": changed, "survey_id": survey_id, "is_frozen": bool(survey.is_frozen)}
+
+
+@app.post("/api/surveys/freeze", response_model=None, tags=["Surveys"])
+def bulk_freeze_surveys(
+    payload: SurveyBulkFreezeIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: m.User = Depends(require_permission("data_verifier")),
+):
+    _web_only(request)
+    cond = owned_by(user)
+    q = db.query(m.FarmerSurvey).filter(m.FarmerSurvey.id.in_(payload.survey_ids))
+    if cond is not None:
+        q = q.filter(cond)
+    surveys = q.all()
+    changed = sum(1 for sv in surveys if _apply_freeze(db, request, sv, user, payload.frozen, payload.note))
+    db.commit()
+    return {"ok": True, "changed": changed, "skipped": len(payload.survey_ids) - changed}
+
+
+@app.get("/api/surveys/{survey_id}/freeze-log", response_model=None, tags=["Surveys"])
+def survey_freeze_log(survey_id: int, db: Session = Depends(get_db),
+                      user: m.User = Depends(require_any_permission("survey_entry", "farmer_records"))):
+    get_owned_survey(db, survey_id, user)  # 404 if not visible to this user
+    rows = db.query(m.SurveyFreezeLog).filter(m.SurveyFreezeLog.survey_id == survey_id).order_by(m.SurveyFreezeLog.id.desc()).all()
+    return [{"id": r.id, "action": r.action, "username": r.username, "timestamp": r.timestamp,
+             "device_id": r.device_id, "note": r.note} for r in rows]
+
+
 # ---------------- PLOT BOUNDARY CAPTURE (v2) ----------------
 # Separate from the survey's own PUT so saving a boundary (draw / Excel / GPS)
 # never requires re-submitting — or re-validating — the entire 60+ field survey.
 
 @app.get("/api/surveys/{survey_id}/plot-boundary", response_model=Optional[PlotBoundaryOut], tags=["Plot Boundary"])
 def get_plot_boundary(survey_id: int, db: Session = Depends(get_db), user: m.User = Depends(require_permission("plots_map"))):
-    survey = db.query(m.FarmerSurvey).get(survey_id)
-    if not survey:
-        raise HTTPException(status_code=404, detail="Survey not found")
+    survey = get_owned_survey(db, survey_id, user)
     if not survey.plot_boundary:
         return None
     return PlotBoundaryOut(
@@ -941,14 +1220,14 @@ def save_plot_boundary(
     db: Session = Depends(get_db),
     user: m.User = Depends(require_permission("plots_map")),
 ):
-    survey = db.query(m.FarmerSurvey).get(survey_id)
-    if not survey:
-        raise HTTPException(status_code=404, detail="Survey not found")
+    survey = get_owned_survey(db, survey_id, user)
+    assert_editable(survey, user)
 
     survey.plot_boundary = _json.dumps([p.model_dump() for p in payload.points])
     survey.plot_boundary_area_acres = payload.area_acres
     survey.plot_boundary_method = payload.method
     survey.plot_boundary_captured_at = datetime.datetime.utcnow()
+    stamp_modified(survey, user, request)
     db.commit()
     db.refresh(survey)
     audit(db, request, "plot_boundary_save", user=user, resource=f"survey:{survey.id}", detail=f"method={payload.method}, points={len(payload.points)}")
@@ -969,13 +1248,13 @@ def delete_plot_boundary(
     db: Session = Depends(get_db),
     user: m.User = Depends(require_permission("plots_map")),
 ):
-    survey = db.query(m.FarmerSurvey).get(survey_id)
-    if not survey:
-        raise HTTPException(status_code=404, detail="Survey not found")
+    survey = get_owned_survey(db, survey_id, user)
+    assert_editable(survey, user)
     survey.plot_boundary = None
     survey.plot_boundary_area_acres = None
     survey.plot_boundary_method = None
     survey.plot_boundary_captured_at = None
+    stamp_modified(survey, user, request)
     db.commit()
     audit(db, request, "plot_boundary_delete", user=user, resource=f"survey:{survey_id}")
     return {"ok": True}
@@ -990,6 +1269,9 @@ def list_plots(
     """Lightweight feed for the read-only plots registry map — only the fields
     the map needs, not the full 60+ field survey record."""
     query = db.query(m.FarmerSurvey)
+    cond = owned_by(user)
+    if cond is not None:
+        query = query.filter(cond)
     if only_with_boundary:
         query = query.filter(m.FarmerSurvey.plot_boundary.isnot(None))
     return query.order_by(m.FarmerSurvey.id).limit(1000).all()
@@ -1011,7 +1293,7 @@ def split_multi(values):
 
 @app.get("/api/dashboard/kpis", tags=["Dashboard"])
 def dashboard_kpis(db: Session = Depends(get_db), user: m.User = Depends(get_current_user)):
-    rows = db.query(m.FarmerSurvey).all()
+    rows = scoped_surveys(db, user).all()
     total = len(rows) or 1
 
     def pct(pred):
@@ -1161,7 +1443,7 @@ def yield_benchmarks(db: Session = Depends(get_db), user: m.User = Depends(get_c
     rolled up overall and per district/taluka so an enumerator can estimate an upcoming
     season's yield & income for a farmer before the harvest is even in.
     """
-    rows = db.query(m.FarmerSurvey).all()
+    rows = scoped_surveys(db, user).all()
 
     def bucket(rows_subset):
         # Every numerator here (yield_raw_qtl, areca_plant_count,

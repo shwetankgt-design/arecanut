@@ -9,6 +9,7 @@ interface UserRow {
   email: string | null;
   role: "admin" | "field";
   permissions: string[];
+  mapped_user_ids: number[];
   is_active: boolean;
   created_at: string;
   locked_until: string | null;
@@ -19,10 +20,11 @@ const MODULE_LABELS: Record<string, string> = {
   farmer_records: "Farmer Records (view & edit)",
   plots_map: "Plots & Map",
   fpo_consultation: "FPO Consultation",
+  data_verifier: "Data Verifier (view, edit, freeze/unfreeze mapped users' records — web only)",
 };
 
 function emptyForm() {
-  return { username: "", full_name: "", email: "", password: "", role: "field" as "admin" | "field", permissions: [] as string[] };
+  return { username: "", full_name: "", email: "", password: "", role: "field" as "admin" | "field", permissions: [] as string[], mapped_user_ids: [] as number[] };
 }
 
 export default function UserManagement() {
@@ -54,7 +56,7 @@ export default function UserManagement() {
 
   const openEdit = (u: UserRow) => {
     setEditing(u);
-    setForm({ username: u.username, full_name: u.full_name, email: u.email || "", password: "", role: u.role, permissions: u.permissions });
+    setForm({ username: u.username, full_name: u.full_name, email: u.email || "", password: "", role: u.role, permissions: u.permissions, mapped_user_ids: u.mapped_user_ids || [] });
     setError("");
     setShowForm(true);
   };
@@ -68,6 +70,10 @@ export default function UserManagement() {
 
   const submit = async () => {
     setError("");
+    if (form.role === "field" && form.permissions.includes("data_verifier") && form.mapped_user_ids.length === 0) {
+      setError("Select at least one user under “Mapped Users” — a Data Verifier needs users whose records they verify.");
+      return;
+    }
     setBusy(true);
     try {
       if (editing) {
@@ -75,7 +81,8 @@ export default function UserManagement() {
           full_name: form.full_name,
           email: form.email || null,
           role: form.role,
-          permissions: form.role === "field" ? form.permissions : [],
+          permissions: form.role === "admin" ? [] : form.permissions,
+          mapped_user_ids: form.role === "field" && form.permissions.includes("data_verifier") ? form.mapped_user_ids : [],
           ...(form.password ? { new_password: form.password } : {}),
         });
       } else {
@@ -85,7 +92,8 @@ export default function UserManagement() {
           email: form.email || null,
           password: form.password,
           role: form.role,
-          permissions: form.role === "field" ? form.permissions : [],
+          permissions: form.role === "admin" ? [] : form.permissions,
+          mapped_user_ids: form.role === "field" && form.permissions.includes("data_verifier") ? form.mapped_user_ids : [],
         });
       }
       setShowForm(false);
@@ -152,6 +160,7 @@ export default function UserManagement() {
                 </td>
                 <td className="px-4 py-2.5 text-xs text-[var(--gt-text-muted)]">
                   {u.role === "admin" ? "All modules" : u.permissions.map((p) => MODULE_LABELS[p] || p).join(", ") || "—"}
+                  {u.permissions.includes("data_verifier") && <div className="mt-0.5">Verifies {u.mapped_user_ids?.length || 0} user(s)</div>}
                 </td>
                 <td className="px-4 py-2.5">
                   <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${u.is_active ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-500"}`}>
@@ -244,6 +253,28 @@ export default function UserManagement() {
                 </div>
               )}
 
+
+              {form.role === "field" && form.permissions.includes("data_verifier") && (
+                <div>
+                  <label className="text-xs font-medium text-[var(--gt-text-muted)]">
+                    Mapped Users ({form.mapped_user_ids.length} selected) — this verifier sees and freezes only these users' records
+                  </label>
+                  <div className="mt-1 max-h-48 overflow-y-auto border border-[var(--gt-border)] rounded-lg p-1.5 flex flex-col gap-0.5">
+                    {users.filter((u) => u.role === "field" && u.is_active && u.id !== editing?.id).map((u) => (
+                      <label key={u.id} className="flex items-center gap-2 text-sm px-1 py-0.5 cursor-pointer">
+                        <input type="checkbox" checked={form.mapped_user_ids.includes(u.id)}
+                          onChange={() => setForm((f) => ({ ...f, mapped_user_ids: f.mapped_user_ids.includes(u.id) ? f.mapped_user_ids.filter((id) => id !== u.id) : [...f.mapped_user_ids, u.id] }))} />
+                        {u.full_name} <span className="text-xs text-[var(--gt-text-muted)]">@{u.username}</span>
+                      </label>
+                    ))}
+                    {users.filter((u) => u.role === "field" && u.is_active && u.id !== editing?.id).length === 0 && (
+                      <span className="text-xs text-[var(--gt-text-muted)] p-1">No other field users to map yet.</span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
               <button
                 type="button"
                 disabled={busy}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useNavigate, Link } from "react-router-dom";
-import { LayoutDashboard, ClipboardList, PlusCircle, Users, Languages, WifiOff, RefreshCw, LogOut, UserCircle, Map, ShieldCheck, MoreHorizontal, AlertTriangle, CloudUpload } from "lucide-react";
+import { LayoutDashboard, ClipboardList, PlusCircle, Users, Languages, WifiOff, RefreshCw, LogOut, UserCircle, Map, ShieldCheck, MoreHorizontal, AlertTriangle, CloudUpload, BarChart3, ListChecks } from "lucide-react";
 import { useLang } from "./LangContext";
 import { tr } from "./i18n";
 import { useAuth } from "./AuthContext";
@@ -127,13 +127,16 @@ export default function Layout() {
   }, [moreOpen]);
 
   const isAdmin = user?.role === "admin";
+  const isMis = user?.role === "mis_user";
   const desktopNav = [
-    { to: "/", label: tr("navDashboard", lang), icon: LayoutDashboard, end: true, show: true },
+    { to: "/", label: tr("navDashboard", lang), icon: LayoutDashboard, end: true, show: !isMis },
+    { to: "/mis", label: "Reports & Dashboards", icon: BarChart3, end: false, show: isMis },
     { to: "/entry", label: tr("navNewEntry", lang), icon: PlusCircle, end: false, show: hasPermission("survey_entry") || hasPermission("fpo_consultation") },
     { to: "/farmers", label: tr("navFarmerRecords", lang), icon: Users, end: false, show: hasPermission("farmer_records") },
     { to: "/plots", label: tr("navPlotsMap", lang), icon: Map, end: false, show: hasPermission("plots_map") },
     { to: "/masters", label: tr("navMasterData", lang), icon: ClipboardList, end: false, show: isAdmin },
     { to: "/users", label: tr("navUsers", lang), icon: ShieldCheck, end: false, show: isAdmin },
+    { to: "/mis-catalog", label: "Catalog", icon: ListChecks, end: false, show: isAdmin },
   ].filter((item) => item.show);
 
   // The bottom tab bar only has room for a handful of icons, so it keeps the
@@ -142,7 +145,8 @@ export default function Layout() {
   // rendered in the desktop top nav, so an admin or plots_map-only user had
   // no way to reach them on a phone at all) goes in the "More" menu instead.
   const mobilePrimary = [
-    { to: "/", label: tr("navDashboard", lang), icon: LayoutDashboard, end: true, show: true },
+    { to: "/", label: tr("navDashboard", lang), icon: LayoutDashboard, end: true, show: !isMis },
+    { to: "/mis", label: "Reports", icon: BarChart3, end: false, show: isMis },
     { to: "/entry", label: tr("navNewEntry", lang), icon: PlusCircle, end: false, show: hasPermission("survey_entry") || hasPermission("fpo_consultation") },
     { to: "/farmers", label: tr("navFarmers", lang), icon: Users, end: false, show: hasPermission("farmer_records") },
   ].filter((item) => item.show);
@@ -151,6 +155,7 @@ export default function Layout() {
     { to: "/plots", label: tr("navPlotsMap", lang), icon: Map, show: hasPermission("plots_map") },
     { to: "/masters", label: tr("navMasterData", lang), icon: ClipboardList, show: isAdmin },
     { to: "/users", label: tr("navUsers", lang), icon: ShieldCheck, show: isAdmin },
+    { to: "/mis-catalog", label: "Catalog", icon: ListChecks, show: isAdmin },
   ].filter((item) => item.show);
 
   return (

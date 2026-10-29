@@ -41,7 +41,7 @@ class UserOut(BaseModel):
 # Single source of truth lives in auth.py (PERMISSION_MODULES) — imported here
 # rather than duplicated, after a duplication bug shipped where this list fell
 # out of sync with auth.py's and rejected a newly added permission module.
-from .auth import PERMISSION_MODULES as PERMISSION_MODULE_VALUES
+from .auth import PERMISSION_MODULES as PERMISSION_MODULE_VALUES, ROLE_KEYS
 
 
 class UserAdminOut(BaseModel):
@@ -54,8 +54,17 @@ class UserAdminOut(BaseModel):
     role: str
     permissions: List[str] = []
     mapped_user_ids: List[int] = []
+    mis_access_all: bool = False
+    catalog_item_ids: List[int] = []
+    data_scope_districts: List[str] = Field(default=[], validation_alias="data_scope_district_list")
     is_active: bool
     created_at: datetime
+
+    @field_validator("mis_access_all", mode="before")
+    @classmethod
+    def _none_is_false(cls, v):
+        # Rows that existed before this column was added hold NULL until the startup backfill runs.
+        return bool(v)
     locked_until: Optional[datetime] = None
 
     @field_validator("permissions", mode="before")
@@ -77,12 +86,16 @@ class UserCreateIn(BaseModel):
     role: str = Field(..., max_length=10)
     permissions: List[str] = []
     mapped_user_ids: List[int] = []  # required when the data_verifier module is granted
+    # MIS User role only (see mis.py)
+    mis_access_all: bool = False
+    catalog_item_ids: List[int] = []
+    data_scope_districts: List[str] = []
 
     @field_validator("role")
     @classmethod
     def role_valid(cls, v: str) -> str:
-        if v not in ("admin", "field"):
-            raise ValueError('role must be "admin" or "field"')
+        if v not in ROLE_KEYS:
+            raise ValueError(f"role must be one of: {', '.join(ROLE_KEYS)}")
         return v
 
     @field_validator("permissions")
@@ -101,14 +114,17 @@ class UserUpdateIn(BaseModel):
     role: Optional[str] = Field(None, max_length=10)
     permissions: Optional[List[str]] = None
     mapped_user_ids: Optional[List[int]] = None
+    mis_access_all: Optional[bool] = None
+    catalog_item_ids: Optional[List[int]] = None
+    data_scope_districts: Optional[List[str]] = None
     is_active: Optional[bool] = None
     new_password: Optional[str] = Field(None, min_length=1, max_length=200)
 
     @field_validator("role")
     @classmethod
     def role_valid(cls, v):
-        if v is not None and v not in ("admin", "field"):
-            raise ValueError('role must be "admin" or "field"')
+        if v is not None and v not in ROLE_KEYS:
+            raise ValueError(f"role must be one of: {', '.join(ROLE_KEYS)}")
         return v
 
     @field_validator("permissions")

@@ -141,3 +141,12 @@ body {
 }
 .gt-toggle-yn button.active-yes { background: var(--gt-success); color: white; }
 .gt-toggle-yn button.active-no { background: var(--gt-danger); color: white; }
+
+/* Plots Map: farmer-name flags sit on the pins; hidden when zoomed far out so they do not overlap */
+.plot-name-label {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+.plot-labels-off .plot-name-label { display: none; }

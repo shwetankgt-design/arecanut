@@ -14,7 +14,7 @@ here, not new endpoint code.
 from dataclasses import dataclass, field
 from typing import Optional, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, Query
 from sqlalchemy.orm import Session
 
 from . import models as m
@@ -137,9 +137,25 @@ def list_master_tables(admin: m.User = Depends(require_role("admin"))):
 
 
 @router.get("/{table}")
-def list_master_rows(table: str, db: Session = Depends(get_db), admin: m.User = Depends(require_role("admin"))):
+def list_master_rows(
+    table: str,
+    response: Response,
+    limit: int | None = Query(None, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    q: str | None = Query(None, max_length=100),
+    db: Session = Depends(get_db),
+    admin: m.User = Depends(require_role("admin")),
+):
+    """Without `limit` this returns every row (the forms use it to fill fk dropdowns);
+    with `limit`/`offset`/`q` it pages and searches by name, and X-Total-Count carries
+    the number of matching rows."""
     spec = _spec(table)
-    rows = db.query(spec.model).order_by(spec.model.id).all()
+    query = db.query(spec.model)
+    if q and hasattr(spec.model, "name"):
+        query = query.filter(spec.model.name.ilike(f"%{q}%"))
+    query = query.order_by(spec.model.id)
+    response.headers["X-Total-Count"] = str(query.order_by(None).count())
+    rows = query.offset(offset).limit(limit).all() if limit is not None else query.all()
 
     # Resolve fk display names in bulk (one query per fk column, not per row).
     fk_lookups: dict = {}

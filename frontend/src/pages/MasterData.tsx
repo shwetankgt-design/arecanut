@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { Plus, Pencil, Trash2, X } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Search } from "lucide-react";
+import Pagination from "../components/Pagination";
+import { DEFAULT_PAGE_SIZE } from "../lib/paging";
 
 interface FieldMeta {
   name: string;
@@ -28,6 +30,12 @@ export default function MasterData() {
   const [tables, setTables] = useState<TableMeta[]>([]);
   const [active, setActive] = useState<string>("");
   const [rows, setRows] = useState<Row[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [fkOptions, setFkOptions] = useState<Record<string, Row[]>>({});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -44,10 +52,28 @@ export default function MasterData() {
     });
   }, []);
 
+  // Server-side paging + name search (villages alone run to thousands of rows).
   const reload = (table = active) => {
     if (!table) return;
-    api.masterRows(table).then(setRows).catch((e) => setError(e.message));
+    setLoading(true);
+    const params: Record<string, string> = { limit: String(pageSize), offset: String((page - 1) * pageSize) };
+    if (debouncedSearch) params.q = debouncedSearch;
+    api.masterRowsPaged(table, params)
+      .then(({ items, total: t }) => {
+        if (items.length === 0 && t > 0 && page > 1) { setPage(Math.ceil(t / pageSize)); return; }
+        setRows(items);
+        setTotal(t);
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
   };
+
+  useEffect(() => {
+    const id = setTimeout(() => { setDebouncedSearch(search.trim()); setPage(1); }, 300);
+    return () => clearTimeout(id);
+  }, [search]);
+
+  const switchTable = (key: string) => { setActive(key); setPage(1); setSearch(""); setDebouncedSearch(""); };
 
   useEffect(() => {
     if (!active) return;
@@ -61,7 +87,7 @@ export default function MasterData() {
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, tables]);
+  }, [active, tables, page, pageSize, debouncedSearch]);
 
   const openCreate = () => {
     if (!activeTable) return;
@@ -133,7 +159,7 @@ export default function MasterData() {
           <button
             key={t.key}
             type="button"
-            onClick={() => setActive(t.key)}
+            onClick={() => switchTable(t.key)}
             className={`text-sm font-medium px-3 py-1.5 rounded-full border ${
               active === t.key ? "bg-[var(--gt-purple)] text-white border-[var(--gt-purple)]" : "bg-white text-[var(--gt-text-muted)] border-[var(--gt-border)]"
             }`}
@@ -148,7 +174,11 @@ export default function MasterData() {
       {activeTable && (
         <div className="gt-card p-0 overflow-x-auto">
           <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--gt-border)]">
-            <div className="font-semibold text-sm text-[var(--gt-purple-dark)]">{activeTable.label} <span className="text-[var(--gt-text-muted)] font-normal">({rows.length})</span></div>
+            <div className="font-semibold text-sm text-[var(--gt-purple-dark)]">{activeTable.label} <span className="text-[var(--gt-text-muted)] font-normal">({total.toLocaleString("en-IN")}{debouncedSearch ? " matching" : ""})</span></div>
+            <div className="relative flex-1 max-w-xs mx-3">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--gt-text-muted)]" />
+              <input className="gt-input !pl-8 !py-1.5 text-xs" placeholder="Search by name…" value={search} onChange={(e) => setSearch(e.target.value)} />
+            </div>
             <button type="button" onClick={openCreate} className="flex items-center gap-1.5 bg-[var(--gt-purple)] text-white px-3 py-1.5 rounded-lg text-xs font-semibold">
               <Plus size={14} /> Add
             </button>
@@ -178,11 +208,22 @@ export default function MasterData() {
               ))}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={activeTable.fields.length + 1} className="px-4 py-6 text-center text-[var(--gt-text-muted)]">No records yet.</td>
+                  <td colSpan={activeTable.fields.length + 1} className="px-4 py-6 text-center text-[var(--gt-text-muted)]">{loading ? "Loading…" : debouncedSearch ? "No records match your search." : "No records yet."}</td>
                 </tr>
               )}
             </tbody>
           </table>
+          <div className="px-4 py-3 border-t border-[var(--gt-border)]">
+            <Pagination
+              page={page}
+              pageSize={pageSize}
+              total={total}
+              loading={loading}
+              noun="records"
+              onPage={setPage}
+              onPageSize={(sz) => { setPageSize(sz); setPage(1); }}
+            />
+          </div>
         </div>
       )}
 

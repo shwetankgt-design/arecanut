@@ -6,6 +6,7 @@ import {
 } from "recharts";
 import { api } from "../api";
 import { useLang } from "../LangContext";
+import { useAuth } from "../AuthContext";
 import { tr, trDistrict } from "../i18n";
 import YieldEstimator from "../components/YieldEstimator";
 
@@ -72,6 +73,7 @@ export default function Dashboard() {
   const [data, setData] = useState<any>(null);
   const navigate = useNavigate();
   const { lang } = useLang();
+  const { user } = useAuth();
 
   useEffect(() => {
     api.dashboardKpis().then(setData).catch(console.error);
@@ -80,6 +82,7 @@ export default function Dashboard() {
   if (!data) return <div className="text-center py-20 text-[var(--gt-text-muted)]">Loading dashboard…</div>;
 
   const goto = (params: Record<string, string>) => {
+    if (user?.role === "mis_user") return; // MIS users see the figures but cannot open the underlying records
     const qs = new URLSearchParams(params).toString();
     navigate(`/farmers${qs ? `?${qs}` : ""}`);
   };

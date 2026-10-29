@@ -2,14 +2,14 @@ import re
 import json
 from collections import Counter
 from typing import Optional
-from fastapi import FastAPI, Depends, HTTPException, Query, Request
+from fastapi import FastAPI, Depends, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func, or_, and_, tuple_, false
 from pydantic import BaseModel, Field
 import datetime
@@ -25,7 +25,7 @@ from .schemas import (
 import json as _json
 from .auth import (
     verify_password, hash_password, validate_password_strength, create_access_token,
-    get_current_user, require_role, require_permission, require_any_permission, PERMISSION_MODULES,
+    get_current_user, require_role, require_permission, require_any_permission, PERMISSION_MODULES, MODULE_DEFS, ROLE_DEFS,
     issue_refresh_token, rotate_refresh_token, revoke_refresh_token, revoke_all_refresh_tokens,
     register_failed_login, register_successful_login, is_locked, audit,
     issue_password_reset_token, consume_password_reset_token,
@@ -33,12 +33,15 @@ from .auth import (
 from .email_utils import send_password_reset_email
 from .master_data import router as master_data_router
 from .fpo_consultation import router as fpo_consultation_router
+from . import mis
+from .mis import router as mis_router
 
 settings = get_settings()
 Base.metadata.create_all(bind=engine)
 sync_missing_columns()
 sync_nullable_columns()
 migrate_roles_and_permissions()
+mis.sync_catalog()  # register every report/dashboard declared in code (mis.py) into the catalog table
 
 app = FastAPI(
     title="Arecanut Farmer Data Collection API",
@@ -96,10 +99,12 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["Authorization", "Content-Type", "X-Device-Id"],
+    expose_headers=["X-Total-Count"],  # lets the browser read the pagination total cross-origin
 )
 
 app.include_router(master_data_router)
 app.include_router(fpo_consultation_router)
+app.include_router(mis_router)
 
 
 # ---------------- AUTH ----------------
@@ -169,6 +174,12 @@ def list_users(db: Session = Depends(get_db), admin: m.User = Depends(require_ro
     return db.query(m.User).order_by(m.User.created_at).all()
 
 
+@app.get("/api/users/access-options", tags=["Users"])
+def get_access_options(admin: m.User = Depends(require_role("admin"))):
+    """Roles and modules (with labels/descriptions) that the User Management multi-selects offer."""
+    return {"roles": ROLE_DEFS, "modules": MODULE_DEFS}
+
+
 @app.get("/api/users/permission-modules", tags=["Users"])
 def get_permission_modules(admin: m.User = Depends(require_role("admin"))):
     """The fixed set of module keys the User Management screen renders as
@@ -214,12 +225,15 @@ def create_user(
         email=payload.email,
         password_hash=hash_password(payload.password),
         role=payload.role,
-        permissions=",".join(payload.permissions) if payload.role != "admin" else None,
+        permissions=",".join(payload.permissions) if payload.role == "field" else "",  # "" (not None): None would pick up the column default
         created_by_user_id=admin.id,
     )
     if payload.role == "field" and "data_verifier" in payload.permissions:
         _set_user_mappings(db, user, payload.mapped_user_ids)
     db.add(user)
+    if payload.role == mis.MIS_ROLE:
+        db.flush()  # need user.id for the assignment log
+        mis.apply_access(db, admin, user, mis_access_all=payload.mis_access_all, item_ids=payload.catalog_item_ids, districts=payload.data_scope_districts)
     db.commit()
     db.refresh(user)
     audit(db, request, "user_create", user=admin, resource=f"user:{user.id}", detail=f"created {user.username} (role={user.role})")
@@ -256,11 +270,18 @@ def update_user(
         user.email = payload.email
     if payload.permissions is not None:
         user.permissions = ",".join(payload.permissions)
+    if user.role != "field":
+        user.permissions = ""  # module permissions only apply to the field role
     if user.role == "field" and "data_verifier" in (user.permissions or "").split(","):
         if payload.mapped_user_ids is not None or not user.mapping_links:
             _set_user_mappings(db, user, payload.mapped_user_ids or [])
     else:
         user.mapping_links = []
+    if user.role == mis.MIS_ROLE:
+        if payload.mis_access_all is not None or payload.catalog_item_ids is not None or payload.data_scope_districts is not None:
+            mis.apply_access(db, admin, user, mis_access_all=payload.mis_access_all, item_ids=payload.catalog_item_ids, districts=payload.data_scope_districts)
+    elif user.mis_access_all or user.catalog_links or user.data_scope_districts:
+        mis.clear_access(db, admin, user)  # no longer an MIS user: drop (and log) the old assignments
     if payload.is_active is not None:
         user.is_active = payload.is_active
     if payload.new_password:
@@ -420,7 +441,7 @@ def get_options(list_code: str = Query(...), db: Session = Depends(get_db)):
 # ---------------- FARMER MASTER LOOKUP (Module 0: search by Aadhaar/Mobile) ----------------
 
 @app.get("/api/farmer-master/lookup", response_model=Optional[FarmerLookup], tags=["Farmer Lookup"])
-def lookup_farmer(q: str = Query(..., description="Aadhaar, Mobile number, or Farmer ID"), db: Session = Depends(get_db), user: m.User = Depends(get_current_user)):
+def lookup_farmer(q: str = Query(..., description="Aadhaar, Mobile number, or Farmer ID"), db: Session = Depends(get_db), user: m.User = Depends(mis.reject_mis)):
     q = q.strip()
     # Mobile/Aadhaar stay exact-match — they're sensitive identifiers, and partial
     # matching on them would be both a privacy smell and ambiguous (many farmers
@@ -538,6 +559,10 @@ def owned_by(user: m.User):
     """
     if user.role == "admin":
         return None
+    if user.role == mis.MIS_ROLE:
+        # MIS users read aggregate data; an optional district scope narrows it.
+        districts = user.data_scope_district_list
+        return m.FarmerSurvey.district.in_(districts) if districts else None
     conds = [_own_condition(user)]
     if "data_verifier" in (user.permissions or "").split(","):
         conds += [_own_condition(l.mapped_user) for l in user.mapping_links]
@@ -549,6 +574,9 @@ def scoped_surveys(db: Session, user: m.User):
     q = db.query(m.FarmerSurvey)
     cond = owned_by(user)
     return q if cond is None else q.filter(cond)
+
+
+mis.set_scope(scoped_surveys)  # MIS reports read through the same scoping rules
 
 
 def _admin_only_user_ids(user: m.User, user_ids: Optional[str]) -> Optional[str]:
@@ -693,6 +721,7 @@ def list_surveys(
     frozen: Optional[bool] = None,
     limit: int = Query(500, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    response: Response = None,
     db: Session = Depends(get_db),
     user: m.User = Depends(require_permission("farmer_records")),
 ):
@@ -707,6 +736,7 @@ def list_surveys(
     )
     # capped result size + offset — prevents a single request from pulling the
     # entire table (OWASP API4:2023 Unrestricted Resource Consumption)
+    response.headers["X-Total-Count"] = str(query.order_by(None).count())
     rows = query.offset(offset).limit(limit).all()
     return [serialize_survey(r) for r in rows]
 
@@ -1260,21 +1290,51 @@ def delete_plot_boundary(
     return {"ok": True}
 
 
-@app.get("/api/plots", response_model=list[PlotSummaryOut], tags=["Plot Boundary"])
+@app.get("/api/plots", response_model=None, tags=["Plot Boundary"])
 def list_plots(
     only_with_boundary: bool = Query(False),
     db: Session = Depends(get_db),
-    user: m.User = Depends(require_permission("plots_map")),
+    user: m.User = Depends(mis.permission_or_catalog("plots_map", "rpt.plots_map")),
 ):
-    """Lightweight feed for the read-only plots registry map — only the fields
-    the map needs, not the full 60+ field survey record."""
-    query = db.query(m.FarmerSurvey)
+    """
+    Feed for the Plots Map: every visible survey that has ANY coordinate —
+    a captured boundary (legacy single boundary or CR-17 multi-plot rows) or
+    the survey's own GPS geo-tag point. Blank fields (drafts) are fine: the
+    result is a plain dict, never run through a strict response model.
+    `boundaries` prefers the multi-plot rows and falls back to the legacy
+    single boundary, so a farmer's plots are never drawn twice.
+    """
+    F = m.FarmerSurvey
+    has_plot_boundary = db.query(m.FarmerPlot.id).filter(m.FarmerPlot.survey_id == F.id, m.FarmerPlot.boundary.isnot(None)).exists()
+    query = db.query(F).options(selectinload(F.plots))
     cond = owned_by(user)
     if cond is not None:
         query = query.filter(cond)
     if only_with_boundary:
-        query = query.filter(m.FarmerSurvey.plot_boundary.isnot(None))
-    return query.order_by(m.FarmerSurvey.id).limit(1000).all()
+        query = query.filter(or_(F.plot_boundary.isnot(None), has_plot_boundary))
+    else:
+        query = query.filter(or_(F.plot_boundary.isnot(None), has_plot_boundary, and_(F.geo_lat.isnot(None), F.geo_long.isnot(None))))
+    out = []
+    for s in query.order_by(F.id).limit(3000).all():
+        boundaries = []
+        for p in sorted(s.plots, key=lambda x: (x.sort_order or 0, x.id)):
+            pts = p.points
+            if pts:
+                boundaries.append({"label": p.label, "points": pts, "area_acres": p.area_acres})
+        if not boundaries and s.plot_boundary:
+            try:
+                pts = _json.loads(s.plot_boundary)
+            except (ValueError, TypeError):
+                pts = None
+            if pts:
+                boundaries.append({"label": "Plot 1", "points": pts, "area_acres": s.plot_boundary_area_acres})
+        out.append({
+            "survey_id": s.id, "farmer_id": s.farmer_id, "farmer_name": s.farmer_name,
+            "village": s.village, "taluka": s.taluka, "district": s.district,
+            "areca_area_acres": s.areca_area_acres, "status": s.status or "submitted",
+            "geo_lat": s.geo_lat, "geo_long": s.geo_long, "boundaries": boundaries,
+        })
+    return out
 
 
 # ---------------- DASHBOARD KPIs ----------------
@@ -1292,7 +1352,7 @@ def split_multi(values):
 
 
 @app.get("/api/dashboard/kpis", tags=["Dashboard"])
-def dashboard_kpis(db: Session = Depends(get_db), user: m.User = Depends(get_current_user)):
+def dashboard_kpis(db: Session = Depends(get_db), user: m.User = Depends(mis.dashboard_viewer("dash.programme"))):
     rows = scoped_surveys(db, user).all()
     total = len(rows) or 1
 
@@ -1436,7 +1496,7 @@ def _safe_avg(values):
 
 
 @app.get("/api/dashboard/yield-benchmarks", tags=["Dashboard"])
-def yield_benchmarks(db: Session = Depends(get_db), user: m.User = Depends(get_current_user)):
+def yield_benchmarks(db: Session = Depends(get_db), user: m.User = Depends(mis.dashboard_viewer("dash.programme"))):
     """
     Historical productivity benchmarks (from actual survey data) used to power the
     Yield Estimation tool: plants/acre density, yield/acre, price realised, and cost/acre,

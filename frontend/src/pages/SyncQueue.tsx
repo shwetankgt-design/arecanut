@@ -5,6 +5,8 @@ import { useAuth } from "../AuthContext";
 import { listQueued, deleteQueued, type QueuedSurvey } from "../offlineQueue";
 import { listQueuedDrafts, deleteQueuedDraft, type QueuedDraft } from "../offlineDraftQueue";
 import { runSync, subscribe } from "../lib/syncManager";
+import Pagination from "../components/Pagination";
+import { paginate, DEFAULT_PAGE_SIZE } from "../lib/paging";
 
 function formatWhen(iso: string): string {
   const d = new Date(iso);
@@ -51,6 +53,10 @@ export default function SyncQueue() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [discarding, setDiscarding] = useState<string | null>(null);
+
+  // The queue lives on the device (small, already fully in memory), so it pages client-side.
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   const refresh = async () => {
     if (!user) return;
@@ -132,7 +138,7 @@ export default function SyncQueue() {
             </div>
           )}
 
-          {rows.map((row) => (
+          {paginate(rows, Math.min(page, Math.max(1, Math.ceil(rows.length / pageSize))), pageSize).map((row) => (
             <div key={`${row.kind}:${row.clientUuid}`} className="gt-card p-4 flex flex-col gap-2">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -171,6 +177,14 @@ export default function SyncQueue() {
               </div>
             </div>
           ))}
+          <Pagination
+            page={Math.min(page, Math.max(1, Math.ceil(rows.length / pageSize)))}
+            pageSize={pageSize}
+            total={rows.length}
+            noun="queued items"
+            onPage={setPage}
+            onPageSize={(sz) => { setPageSize(sz); setPage(1); }}
+          />
         </div>
       )}
     </div>

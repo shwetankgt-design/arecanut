@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 import datetime
 from .db import Base
@@ -26,6 +26,20 @@ class User(Base):
     # Users holding the "data_verifier" module additionally see/edit/freeze the
     # records of these mapped users (see owned_by() in main.py).
     mapping_links = relationship("UserMapping", cascade="all, delete-orphan", foreign_keys="UserMapping.user_id")
+    # MIS User role (see mis.py): access to the report/dashboard catalog.
+    # mis_access_all = "all current AND future" items; otherwise only the rows in user_catalog_access.
+    mis_access_all = Column(Boolean, nullable=False, default=False)
+    # Optional data scope for MIS users: comma-separated district names; blank = all districts.
+    data_scope_districts = Column(String, nullable=True)
+    catalog_links = relationship("UserCatalogAccess", cascade="all, delete-orphan", foreign_keys="UserCatalogAccess.user_id")
+
+    @property
+    def catalog_item_ids(self):
+        return [l.item_id for l in self.catalog_links]
+
+    @property
+    def data_scope_district_list(self):
+        return [d for d in (self.data_scope_districts or "").split(",") if d]
 
     @property
     def mapped_user_ids(self):
@@ -626,3 +640,60 @@ class SurveyFreezeLog(Base):
     timestamp = Column(DateTime, default=datetime.datetime.utcnow, index=True)
     device_id = Column(String, nullable=True)
     note = Column(String, nullable=True)
+
+
+# ---------------- MIS: REPORT & DASHBOARD CATALOG ----------------
+
+class CatalogItem(Base):
+    """Master catalog of every report / dashboard. Rows are created and kept in sync from the code-level
+    registry (mis.py) at startup — nobody inserts them by hand. Admins may only change status/order."""
+    __tablename__ = "catalog_item"
+    id = Column(Integer, primary_key=True)
+    code = Column(String, unique=True, nullable=False, index=True)       # stable identifier, e.g. "rpt.district_coverage"
+    name = Column(String, nullable=False)
+    item_type = Column(String, nullable=False)                           # "report" | "dashboard"
+    category = Column(String, nullable=False, default="General")
+    description = Column(Text, nullable=True)
+    route = Column(String, nullable=True)                                # in-app route to open it
+    component = Column(String, nullable=False, default="GenericReport")  # frontend component key
+    status = Column(String, nullable=False, default="active")            # "active" | "inactive"
+    display_order = Column(Integer, nullable=False, default=100)
+    registered = Column(Boolean, nullable=False, default=True)           # False = removed from the code registry
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+
+class UserCatalogAccess(Base):
+    __tablename__ = "user_catalog_access"
+    __table_args__ = (UniqueConstraint("user_id", "item_id", name="uq_user_catalog_item"),)
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("auth_user.id"), nullable=False, index=True)
+    item_id = Column(Integer, ForeignKey("catalog_item.id"), nullable=False, index=True)
+    assigned_by_user_id = Column(Integer, ForeignKey("auth_user.id"), nullable=True)
+    assigned_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class CatalogAssignmentLog(Base):
+    """Who granted / revoked which item for whom, and when (append-only)."""
+    __tablename__ = "catalog_assignment_log"
+    id = Column(Integer, primary_key=True)
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+    actor_user_id = Column(Integer, nullable=True)
+    actor_username = Column(String, nullable=True)
+    target_user_id = Column(Integer, nullable=False, index=True)
+    target_username = Column(String, nullable=True)
+    item_code = Column(String, nullable=True)       # null for user-level actions (all-access toggle, scope)
+    action = Column(String, nullable=False)         # grant | revoke | all_on | all_off | scope
+    note = Column(String, nullable=True)
+
+
+class CatalogAccessLog(Base):
+    """Every time an MIS user opens / loads a report or dashboard (append-only)."""
+    __tablename__ = "catalog_access_log"
+    id = Column(Integer, primary_key=True)
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    username = Column(String, nullable=True)
+    item_code = Column(String, nullable=False, index=True)
+    ip_address = Column(String, nullable=True)
+    device_id = Column(String, nullable=True)

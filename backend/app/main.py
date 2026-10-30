@@ -576,6 +576,12 @@ def scoped_surveys(db: Session, user: m.User):
     return q if cond is None else q.filter(cond)
 
 
+def submitted_surveys(db: Session, user: m.User):
+    """scoped_surveys() minus drafts. NULL status = submitted (rows saved before Save-as-Draft existed).
+    Dashboard figures describe surveyed farmers, so drafts (incomplete, often mostly blank) are excluded."""
+    return scoped_surveys(db, user).filter(or_(m.FarmerSurvey.status.is_(None), m.FarmerSurvey.status == "submitted"))
+
+
 mis.set_scope(scoped_surveys)  # MIS reports read through the same scoping rules
 
 
@@ -1351,9 +1357,17 @@ def split_multi(values):
     return counter
 
 
+def _record_status_counts(db: Session, user: m.User) -> dict:
+    """Submitted vs draft record counts for everything this user may see (NULL status = submitted)."""
+    F = m.FarmerSurvey
+    drafts = scoped_surveys(db, user).filter(F.status == "draft").count()
+    submitted = submitted_surveys(db, user).count()
+    return {"submitted": submitted, "draft": drafts, "total": submitted + drafts}
+
+
 @app.get("/api/dashboard/kpis", tags=["Dashboard"])
 def dashboard_kpis(db: Session = Depends(get_db), user: m.User = Depends(mis.dashboard_viewer("dash.programme"))):
-    rows = scoped_surveys(db, user).all()
+    rows = submitted_surveys(db, user).all()  # submitted surveys only — drafts are excluded from every dashboard figure
     total = len(rows) or 1
 
     def pct(pred):
@@ -1413,6 +1427,7 @@ def dashboard_kpis(db: Session = Depends(get_db), user: m.User = Depends(mis.das
 
     return {
         "total_farmers": total,
+        "record_status": _record_status_counts(db, user),
         "reach": {
             "total_surveyed": total,
             "village_counts": village_counts.most_common(),
@@ -1503,7 +1518,7 @@ def yield_benchmarks(db: Session = Depends(get_db), user: m.User = Depends(mis.d
     rolled up overall and per district/taluka so an enumerator can estimate an upcoming
     season's yield & income for a farmer before the harvest is even in.
     """
-    rows = scoped_surveys(db, user).all()
+    rows = submitted_surveys(db, user).all()  # submitted surveys only — drafts are excluded from every dashboard figure
 
     def bucket(rows_subset):
         # Every numerator here (yield_raw_qtl, areca_plant_count,

@@ -83,7 +83,10 @@ export default function Dashboard() {
 
   const goto = (params: Record<string, string>) => {
     if (user?.role === "mis_user") return; // MIS users see the figures but cannot open the underlying records
-    const qs = new URLSearchParams(params).toString();
+    // Dashboard figures count submitted surveys only, so the drill-down opens the Submitted view of the list.
+    const merged: Record<string, string> = { status: "submitted", ...params };
+    if (!merged.status) delete merged.status; // "" = show all statuses
+    const qs = new URLSearchParams(merged).toString();
     navigate(`/farmers${qs ? `?${qs}` : ""}`);
   };
 
@@ -103,10 +106,11 @@ export default function Dashboard() {
         <p className="text-sm text-[var(--gt-text-muted)]">{tr("dashboardSubtitle", lang)}</p>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KpiCard label="Farmers Surveyed" value={data.total_farmers} sub="Total records" onClick={() => goto({})} />
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <KpiCard label="Total Records" value={(data.record_status?.total ?? data.total_farmers).toLocaleString("en-IN")} sub="Submitted + drafts" onClick={() => goto({ status: "" })} />
+        <KpiCard label="Submitted Records" value={(data.record_status?.submitted ?? data.total_farmers).toLocaleString("en-IN")} sub="Farmers surveyed — all figures below" onClick={() => goto({})} />
+        <KpiCard label="Draft Records" value={(data.record_status?.draft ?? 0).toLocaleString("en-IN")} sub="Incomplete — not counted below" onClick={() => goto({ status: "draft" })} />
         <KpiCard label="Society / FPC Linked" value={`${data.institutional_linkage.pct_society_linked}%`} onClick={() => goto({ society_assoc: "Yes" })} />
-        <KpiCard label="Avg. Net Income" value={`₹${data.economics.avg_net_income.toLocaleString("en-IN")}`} sub="per farmer / season" onClick={() => goto({})} />
         <KpiCard label="Avg. Yield / Acre" value={`${data.land_productivity.avg_yield_per_acre} Qtl`} onClick={() => goto({})} />
         <KpiCard label="Credit Linked" value={`${data.financial_inclusion.pct_credit_linked}%`} onClick={() => goto({ credit_linkage: "Yes" })} />
         <KpiCard label="Govt. Scheme Availed" value={`${data.scheme_penetration.pct_scheme_availed}%`} onClick={() => goto({ scheme_availed: "Yes" })} />

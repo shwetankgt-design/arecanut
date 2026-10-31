@@ -106,8 +106,8 @@ function GenericReport({ code }: { code: string }) {
 // of visual needs an entry here; any report that returns {columns, rows} uses GenericReport automatically.
 const COMPONENTS: Record<string, ComponentType<{ code: string }>> = {
   GenericReport,
-  ProgrammeDashboard: () => <Dashboard />,
-  PlotsMap: () => <PlotsRegistry />,
+  ProgrammeDashboard: () => <Dashboard embedded />,
+  PlotsMap: () => <PlotsRegistry embedded />,
 };
 
 export default function MisViewer() {

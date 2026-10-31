@@ -69,7 +69,7 @@ function Section({ title, children, lang }: { title: string; children: React.Rea
   );
 }
 
-export default function Dashboard() {
+export default function Dashboard({ embedded = false }: { embedded?: boolean }) {
   const [data, setData] = useState<any>(null);
   const navigate = useNavigate();
   const { lang } = useLang();
@@ -98,10 +98,12 @@ export default function Dashboard() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="text-xl font-bold text-[var(--gt-purple-dark)]">{tr("dashboardTitle", lang)}</h1>
-        <p className="text-sm text-[var(--gt-text-muted)]">{tr("dashboardSubtitle", lang)}</p>
-      </div>
+      {!embedded && (
+        <div>
+          <h1 className="text-xl font-bold text-[var(--gt-purple-dark)]">{tr("dashboardTitle", lang)}</h1>
+          <p className="text-sm text-[var(--gt-text-muted)]">{tr("dashboardSubtitle", lang)}</p>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiCard label="Farmers Surveyed" value={data.total_farmers} sub="Total records" onClick={() => goto({})} />

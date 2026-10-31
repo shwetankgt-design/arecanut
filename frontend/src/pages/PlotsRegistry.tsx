@@ -90,7 +90,7 @@ function LabelZoomWatcher() {
   return null;
 }
 
-export default function PlotsRegistry() {
+export default function PlotsRegistry({ embedded = false }: { embedded?: boolean }) {
   const [plots, setPlots] = useState<PlotRow[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -152,7 +152,7 @@ export default function PlotsRegistry() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h1 className="text-xl font-bold text-[var(--gt-purple-dark)]">Plots Registry Map</h1>
+          {!embedded && <h1 className="text-xl font-bold text-[var(--gt-purple-dark)]">Plots Registry Map</h1>}
           <p className="text-sm text-[var(--gt-text-muted)]">
             {items.length} farmer(s) on the map: {boundaryCount} with plot boundary, {pointOnlyCount} GPS point only
             {districtFilter ? ` · ${trDistrict(districtFilter, lang)}` : " · all districts"}

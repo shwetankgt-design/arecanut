@@ -11,9 +11,11 @@ interface Props {
   requireAny?: string[];
   /** MIS pages: only MIS users (and admins) may open these. */
   mis?: boolean;
+  /** Client pages: client users (and admins, for oversight) only. */
+  clientArea?: boolean;
 }
 
-export default function ProtectedRoute({ require, requireAny, mis }: Props) {
+export default function ProtectedRoute({ require, requireAny, mis, clientArea }: Props) {
   const { user, loading, hasPermission } = useAuth();
   const location = useLocation();
 
@@ -26,6 +28,13 @@ export default function ProtectedRoute({ require, requireAny, mis }: Props) {
   // An MIS user may only ever see the MIS pages — anything else bounces to their reports landing page.
   if (user.role === "mis_user" && !location.pathname.startsWith("/mis")) {
     return <Navigate to="/mis" replace />;
+  }
+  // A client user only ever sees the client pages.
+  if (user.role === "client" && !location.pathname.startsWith("/client")) {
+    return <Navigate to="/client" replace />;
+  }
+  if (clientArea && user.role !== "client" && user.role !== "admin") {
+    return <Navigate to="/" replace />;
   }
   if (mis && user.role !== "mis_user" && user.role !== "admin") {
     return <Navigate to="/" replace />;

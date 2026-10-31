@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useNavigate, Link } from "react-router-dom";
-import { LayoutDashboard, ClipboardList, PlusCircle, Users, Languages, WifiOff, RefreshCw, LogOut, UserCircle, Map, ShieldCheck, MoreHorizontal, AlertTriangle, CloudUpload, BarChart3, ListChecks } from "lucide-react";
+import { LayoutDashboard, ClipboardList, PlusCircle, Users, Languages, WifiOff, RefreshCw, LogOut, UserCircle, Map, ShieldCheck, MoreHorizontal, AlertTriangle, CloudUpload, BarChart3, ListChecks, Eye } from "lucide-react";
 import { useLang } from "./LangContext";
 import { tr } from "./i18n";
 import { useAuth } from "./AuthContext";
+import { api } from "./api";
 import { initSyncManager, runSync, subscribe, adoptLegacyQueue, clearAutoAdoptedNotice, type SyncManagerState } from "./lib/syncManager";
 
 function SyncStatus() {
@@ -111,6 +112,13 @@ export default function Layout() {
   const navigate = useNavigate();
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
+  const [clientMods, setClientMods] = useState<string[]>([]);
+  const isClientUser = user?.role === "client";
+  // A client user's menu is exactly the modules the admin assigned (read from the server, never assumed).
+  useEffect(() => {
+    if (!isClientUser) return;
+    api.clientMe().then((me) => setClientMods((me.modules || []).map((x: { code: string }) => x.code))).catch(() => setClientMods([]));
+  }, [isClientUser]);
 
   const doLogout = async () => {
     const proceeded = await logout();
@@ -129,9 +137,11 @@ export default function Layout() {
   const isAdmin = user?.role === "admin";
   const isMis = user?.role === "mis_user";
   const desktopNav = [
-    { to: "/", label: tr("navDashboard", lang), icon: LayoutDashboard, end: true, show: !isMis },
+    { to: "/", label: tr("navDashboard", lang), icon: LayoutDashboard, end: true, show: !isMis && !isClientUser },
+    { to: "/client", label: "Dashboard", icon: LayoutDashboard, end: true, show: isClientUser && clientMods.includes("client_dashboard") },
+    { to: "/client/farmers", label: "Farmer Records", icon: Eye, end: false, show: isClientUser && clientMods.includes("client_farmer_records") },
     { to: "/mis", label: "Reports & Dashboards", icon: BarChart3, end: false, show: isMis },
-    { to: "/entry", label: tr("navNewEntry", lang), icon: PlusCircle, end: false, show: hasPermission("survey_entry") || hasPermission("fpo_consultation") },
+    { to: "/entry", label: tr("navNewEntry", lang), icon: PlusCircle, end: false, show: !isClientUser && (hasPermission("survey_entry") || hasPermission("fpo_consultation")) },
     { to: "/farmers", label: tr("navFarmerRecords", lang), icon: Users, end: false, show: hasPermission("farmer_records") },
     { to: "/plots", label: tr("navPlotsMap", lang), icon: Map, end: false, show: hasPermission("plots_map") },
     { to: "/masters", label: tr("navMasterData", lang), icon: ClipboardList, end: false, show: isAdmin },
@@ -145,7 +155,9 @@ export default function Layout() {
   // rendered in the desktop top nav, so an admin or plots_map-only user had
   // no way to reach them on a phone at all) goes in the "More" menu instead.
   const mobilePrimary = [
-    { to: "/", label: tr("navDashboard", lang), icon: LayoutDashboard, end: true, show: !isMis },
+    { to: "/", label: tr("navDashboard", lang), icon: LayoutDashboard, end: true, show: !isMis && !isClientUser },
+    { to: "/client", label: "Dashboard", icon: LayoutDashboard, end: true, show: isClientUser && clientMods.includes("client_dashboard") },
+    { to: "/client/farmers", label: "Farmers", icon: Eye, end: false, show: isClientUser && clientMods.includes("client_farmer_records") },
     { to: "/mis", label: "Reports", icon: BarChart3, end: false, show: isMis },
     { to: "/entry", label: tr("navNewEntry", lang), icon: PlusCircle, end: false, show: hasPermission("survey_entry") || hasPermission("fpo_consultation") },
     { to: "/farmers", label: tr("navFarmers", lang), icon: Users, end: false, show: hasPermission("farmer_records") },

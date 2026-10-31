@@ -133,3 +133,20 @@ def migrate_roles_and_permissions():
         ))
         if "mis_access_all" in cols:
             conn.execute(text("UPDATE auth_user SET mis_access_all = :f WHERE mis_access_all IS NULL"), {"f": False})
+
+
+# Indexes the client dashboard / farmer list filter and group by (lakhs of rows). Idempotent; plain SQL works on SQLite and PostgreSQL.
+CLIENT_INDEXES = [
+    ("ix_farmer_survey_district", "farmer_survey (district)"),
+    ("ix_farmer_survey_taluka", "farmer_survey (taluka)"),
+    ("ix_farmer_survey_village", "farmer_survey (village)"),
+    ("ix_farmer_survey_society_name", "farmer_survey (society_name)"),
+    ("ix_farmer_survey_scope", "farmer_survey (status, district, taluka, survey_year)"),
+]
+
+
+def ensure_indexes():
+    from sqlalchemy import text
+    with engine.begin() as conn:
+        for name, target in CLIENT_INDEXES:
+            conn.execute(text(f"CREATE INDEX IF NOT EXISTS {name} ON {target}"))

@@ -17,6 +17,9 @@ import SyncQueue from "./pages/SyncQueue";
 import MisHome from "./pages/MisHome";
 import MisViewer from "./pages/MisViewer";
 import MisCatalog from "./pages/MisCatalog";
+import ClientDashboard from "./pages/ClientDashboard";
+import ClientFarmers from "./pages/ClientFarmers";
+import ClientFarmerDetail from "./pages/ClientFarmerDetail";
 import FPOConsultationWizard from "./pages/FPOConsultationWizard";
 import FPOConsultationsList from "./pages/FPOConsultationsList";
 import { LangProvider } from "./LangContext";
@@ -41,6 +44,11 @@ export default function App() {
                 <Route element={<ProtectedRoute mis />}>
                   <Route path="/mis" element={<MisHome />} />
                   <Route path="/mis/view/:code" element={<MisViewer />} />
+                </Route>
+                <Route element={<ProtectedRoute clientArea />}>
+                  <Route path="/client" element={<ClientDashboard />} />
+                  <Route path="/client/farmers" element={<ClientFarmers />} />
+                  <Route path="/client/farmer" element={<ClientFarmerDetail />} />
                 </Route>
                 <Route element={<ProtectedRoute requireAny={["survey_entry", "fpo_consultation"]} />}>
                   <Route path="/entry" element={<EntryLanding />} />

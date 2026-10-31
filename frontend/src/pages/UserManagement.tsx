@@ -3,13 +3,14 @@ import type { ReactNode } from "react";
 import { api } from "../api";
 import {
   UserPlus, ShieldCheck, X, Search, Pencil, Eye, EyeOff, Copy, Check, RefreshCw, KeyRound,
-  CheckCircle2, AlertCircle, Power, UserCog,
+  CheckCircle2, AlertCircle, Power, UserCog, Building2,
 } from "lucide-react";
 import MultiSelect from "../components/MultiSelect";
 import CatalogPicker from "../components/CatalogPicker";
 import type { CatalogItem } from "../lib/mis";
 import type { SelectOption } from "../components/MultiSelect";
 import Pagination from "../components/Pagination";
+import ClientOrgsPanel, { Drawer as SideDrawer } from "./ClientAdmin";
 import { paginate, DEFAULT_PAGE_SIZE } from "../lib/paging";
 
 interface UserRow {
@@ -23,6 +24,9 @@ interface UserRow {
   mis_access_all?: boolean;
   catalog_item_ids?: number[];
   data_scope_districts?: string[];
+  client_id?: number | null;
+  client_name?: string | null;
+  client_module_codes?: string[];
   is_active: boolean;
   created_at: string;
   locked_until: string | null;
@@ -30,7 +34,7 @@ interface UserRow {
 
 // Roles and modules come from the backend (auth.ROLE_DEFS / MODULE_DEFS via /users/access-options), so a new
 // one needs no change here. These fallbacks only apply if that request fails.
-interface RoleDef { key: string; label: string; description: string; uses_modules: boolean; single_instance: boolean; uses_catalog?: boolean }
+interface RoleDef { key: string; label: string; description: string; uses_modules: boolean; single_instance: boolean; uses_catalog?: boolean; uses_client?: boolean }
 interface ModuleDef { key: string; label: string; description: string; requires_mapped_users?: boolean }
 const FALLBACK_ROLES: RoleDef[] = [
   { key: "field", label: "Field Team", description: "Works with records they own; access is set by the modules.", uses_modules: true, single_instance: false },
@@ -134,6 +138,8 @@ interface FormState {
   mis_access_all: boolean;
   catalog_item_ids: number[];
   data_scope_districts: string[];
+  client_id: string;
+  client_module_codes: string[];
 }
 
 function UserDrawer({
@@ -150,8 +156,9 @@ function UserDrawer({
 }) {
   const initial = useMemo<FormState>(() => editing
     ? { username: editing.username, full_name: editing.full_name, email: editing.email || "", password: "", role: editing.role, permissions: editing.permissions, mapped_user_ids: editing.mapped_user_ids || [],
-        mis_access_all: !!editing.mis_access_all, catalog_item_ids: editing.catalog_item_ids || [], data_scope_districts: editing.data_scope_districts || [] }
-    : { username: "", full_name: "", email: "", password: "", role: "field", permissions: [], mapped_user_ids: [], mis_access_all: false, catalog_item_ids: [], data_scope_districts: [] }, [editing]);
+        mis_access_all: !!editing.mis_access_all, catalog_item_ids: editing.catalog_item_ids || [], data_scope_districts: editing.data_scope_districts || [],
+        client_id: editing.client_id ? String(editing.client_id) : "", client_module_codes: editing.client_module_codes || [] }
+    : { username: "", full_name: "", email: "", password: "", role: "field", permissions: [], mapped_user_ids: [], mis_access_all: false, catalog_item_ids: [], data_scope_districts: [], client_id: "", client_module_codes: [] }, [editing]);
   const [form, setForm] = useState<FormState>(initial);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [submitted, setSubmitted] = useState(false);
@@ -159,6 +166,8 @@ function UserDrawer({
   const [serverError, setServerError] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [orgs, setOrgs] = useState<{ id: number; name: string; is_active: boolean; modules: string[]; scope: { district: string[]; taluka: string[]; survey_year: string[] } }[]>([]);
+  const [clientModules, setClientModules] = useState<{ code: string; label: string; description: string }[]>([]);
   const firstRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
 
@@ -182,6 +191,13 @@ function UserDrawer({
   const roleDef = roles.find((r) => r.key === form.role);
   const usesModules = roleDef ? roleDef.uses_modules : true;
   const usesCatalog = !!roleDef?.uses_catalog;
+  const usesClient = !!roleDef?.uses_client;
+  useEffect(() => {
+    if (!usesClient) return;
+    api.clientAdminOrgs().then(setOrgs).catch(() => {});
+    api.clientAdminModules().then(setClientModules).catch(() => {});
+  }, [usesClient]);
+  const selectedOrg = orgs.find((o) => String(o.id) === form.client_id);
   const misUsers = users.filter((u) => u.role === form.role && u.id !== editing?.id);
   const verifierKeys = modules.filter((m) => m.requires_mapped_users).map((m) => m.key);
   const wantsVerifier = usesModules && form.permissions.some((p) => verifierKeys.includes(p));
@@ -198,6 +214,8 @@ function UserDrawer({
   const pw = strength(form.password);
   if (!editing && !form.password) errors.password = "Password is required.";
   else if (form.password && !pw.requiredOk) errors.password = "Password does not meet the required rules.";
+  if (usesClient && !form.client_id) errors.client = "Select the client organisation.";
+  if (usesClient && form.client_id && form.client_module_codes.length === 0) errors.client_modules = "Select at least one module, otherwise this user sees nothing.";
   if (wantsVerifier && form.mapped_user_ids.length === 0) errors.mapped = "Select at least one user this verifier will review.";
   const errorKeys = Object.keys(errors);
 
@@ -235,6 +253,7 @@ function UserDrawer({
           permissions,
           mapped_user_ids: mapped,
           ...(usesCatalog ? { mis_access_all: form.mis_access_all, catalog_item_ids: form.mis_access_all ? form.catalog_item_ids : form.catalog_item_ids, data_scope_districts: form.data_scope_districts } : {}),
+          ...(usesClient ? { client_id: Number(form.client_id), client_module_codes: form.client_module_codes } : {}),
           ...(form.password ? { new_password: form.password } : {}),
         });
         onSaved(`${form.full_name.trim()} was updated.`);
@@ -248,6 +267,7 @@ function UserDrawer({
           permissions,
           mapped_user_ids: mapped,
           ...(usesCatalog ? { mis_access_all: form.mis_access_all, catalog_item_ids: form.catalog_item_ids, data_scope_districts: form.data_scope_districts } : {}),
+          ...(usesClient ? { client_id: Number(form.client_id), client_module_codes: form.client_module_codes } : {}),
         });
         onSaved(`${form.full_name.trim()} was created. They can sign in with username “${form.username.trim()}”.`);
       }
@@ -352,6 +372,54 @@ function UserDrawer({
                   searchPlaceholder="Search modules…"
                 />
               </FieldBox>
+            ) : usesClient ? (
+              <div className="rounded-xl border border-[var(--gt-border)] bg-[#FBF9FE] p-3 flex flex-col gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-[var(--gt-purple-dark)]">Client access</div>
+                  <p className="text-xs text-[var(--gt-text-muted)]">Read-only access to the Dashboard and Farmer Records, limited to the client organisation's data scope. Mobile number and audit fields are never shown to client users.</p>
+                </div>
+                <div data-invalid={!!(show("client") && errors.client)}>
+                  <FieldBox label="Client organisation" required error={show("client") ? errors.client : undefined} hint="Create or edit organisations (modules and data scope) with “Client organisations” at the top of this page.">
+                    <MultiSelect
+                      mode="single"
+                      ariaLabel="Client organisation"
+                      options={orgs.filter((o) => o.is_active || String(o.id) === form.client_id).map((o) => ({ value: String(o.id), label: o.name, description: `${o.modules.length} module(s)` }))}
+                      value={form.client_id ? [form.client_id] : []}
+                      onChange={(v) => {
+                        const org = orgs.find((o) => String(o.id) === v[0]);
+                        setForm((f) => ({ ...f, client_id: v[0] || "", client_module_codes: org ? [...org.modules] : [] }));
+                      }}
+                      invalid={!!(show("client") && errors.client)}
+                      placeholder="Select a client organisation"
+                      searchPlaceholder="Search clients…"
+                      emptyText="No client organisations yet — create one first."
+                    />
+                  </FieldBox>
+                </div>
+                {selectedOrg && (
+                  <>
+                    <div data-invalid={!!(show("client_modules") && errors.client_modules)}>
+                      <FieldBox label="Modules for this user" error={show("client_modules") ? errors.client_modules : undefined} hint="Starts from the organisation's modules; add or remove to override for this user only.">
+                        <MultiSelect
+                          ariaLabel="Client modules"
+                          options={clientModules.map((m) => ({ value: m.code, label: m.label, description: m.description }))}
+                          value={form.client_module_codes}
+                          onChange={(v) => set("client_module_codes", v)}
+                          invalid={!!(show("client_modules") && errors.client_modules)}
+                          placeholder="Select modules"
+                        />
+                      </FieldBox>
+                    </div>
+                    <div className="text-xs text-[var(--gt-text-muted)] bg-white border border-[var(--gt-border)] rounded-lg px-3 py-2">
+                      <b>Data scope:</b> {[
+                        selectedOrg.scope.district.length ? `Districts: ${selectedOrg.scope.district.join(", ")}` : "",
+                        selectedOrg.scope.taluka.length ? `Taluks: ${selectedOrg.scope.taluka.join(", ")}` : "",
+                        selectedOrg.scope.survey_year.length ? `Survey years: ${selectedOrg.scope.survey_year.join(", ")}` : "",
+                      ].filter(Boolean).join(" · ") || "all data (no restriction)"}
+                    </div>
+                  </>
+                )}
+              </div>
             ) : usesCatalog ? (
               <div className="rounded-xl border border-[var(--gt-border)] bg-[#FBF9FE] p-3 flex flex-col gap-3">
                 <div>
@@ -433,7 +501,9 @@ function UserDrawer({
           )}
           <div className="flex items-center justify-between gap-3">
             <div className="text-xs text-[var(--gt-text-muted)] hidden sm:block">
-              {usesCatalog
+              {usesClient
+                ? `${roleDef?.label} · ${selectedOrg ? selectedOrg.name : "no organisation yet"} · ${form.client_module_codes.length} module(s)`
+                : usesCatalog
                 ? `${roleDef?.label} · ${form.mis_access_all ? "all reports & dashboards" : `${form.catalog_item_ids.length} report/dashboard item(s)`}`
                 : usesModules ? `${roleDef?.label || form.role} · ${moduleCount} module${moduleCount === 1 ? "" : "s"}` : `${roleDef?.label || form.role} · all modules`}{wantsVerifier ? ` · ${form.mapped_user_ids.length} reviewed user(s)` : ""}
             </div>
@@ -529,6 +599,7 @@ type StatusFilter = "all" | "active" | "disabled";
 export default function UserManagement() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [roles, setRoles] = useState<RoleDef[]>(FALLBACK_ROLES);
+  const [orgsOpen, setOrgsOpen] = useState(false);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [districts, setDistricts] = useState<string[]>([]);
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -619,6 +690,11 @@ export default function UserManagement() {
               <ShieldCheck size={16} /> Bulk assign reports
             </button>
           )}
+          {roles.some((r) => r.uses_client) && (
+            <button type="button" onClick={() => setOrgsOpen(true)} className="gt-btn-secondary !py-2.5 flex items-center gap-1.5">
+              <Building2 size={16} /> Client organisations
+            </button>
+          )}
           <button type="button" onClick={() => setDrawer({ editing: null })} className="gt-btn-primary !py-2.5 flex items-center gap-1.5">
             <UserPlus size={16} /> New user
           </button>
@@ -690,7 +766,12 @@ export default function UserManagement() {
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    {roleUsesCatalog(u.role) ? (
+                    {u.role === "client" ? (
+                      <div className="text-xs">
+                        <span className="font-medium text-[var(--gt-purple-dark)]">{u.client_name || "No organisation"}</span>
+                        <div className="text-[11px] text-[var(--gt-text-muted)]">{(u.client_module_codes || []).map((c) => c.replace(/^client_/, "").replace(/_/g, " ")).join(", ") || "No modules"}</div>
+                      </div>
+                    ) : roleUsesCatalog(u.role) ? (
                       <div className="text-xs">
                         <span className="text-sky-700 font-medium">{u.mis_access_all ? "All reports & dashboards" : `${u.catalog_item_ids?.length || 0} report/dashboard item(s)`}</span>
                         {u.mis_access_all && <div className="text-[11px] text-[var(--gt-text-muted)]">current and future</div>}
@@ -735,6 +816,8 @@ export default function UserManagement() {
           {filtered.length <= 20 && <div className="text-xs text-[var(--gt-text-muted)]">{filtered.length} user{filtered.length === 1 ? "" : "s"}{filtered.length !== users.length ? ` (of ${users.length})` : ""}</div>}
         </div>
       </div>
+
+      {orgsOpen && <SideDrawer title="Client organisations" wide onClose={() => setOrgsOpen(false)}><ClientOrgsPanel onChanged={reload} /></SideDrawer>}
 
       {bulkOpen && (
         <BulkAssignModal

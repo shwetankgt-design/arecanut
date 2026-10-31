@@ -229,6 +229,31 @@ export const api = {
   bulkFreeze: (surveyIds: number[], frozen: boolean, note?: string) =>
     req(`/surveys/freeze`, { method: "POST", body: JSON.stringify({ survey_ids: surveyIds, frozen, note: note || null }) }),
   freezeLog: (id: number) => req(`/surveys/${id}/freeze-log`),
+
+  // Client users (see backend/app/client.py)
+  clientMe: () => req("/client/me"),
+  clientFilters: (params: Record<string, string>) => req(`/client/filters?${new URLSearchParams(params).toString()}`),
+  clientDashboard: (params: Record<string, string>) => req(`/client/dashboard?${new URLSearchParams(params).toString()}`),
+  clientDrill: (params: Record<string, string>) => req(`/client/dashboard/drill?${new URLSearchParams(params).toString()}`),
+  clientFarmers: (params: Record<string, string>) => req(`/client/farmers?${new URLSearchParams(params).toString()}`),
+  clientFarmer: (farmerId: string) => req(`/client/farmers/${encodeURIComponent(farmerId)}`),
+  clientDownload: async (path: string, params: Record<string, string>, filename: string) => {
+    const res = await reqRaw(`/client/${path}?${new URLSearchParams(params).toString()}`);
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement("a");
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  },
+  // Client administration (admin only)
+  clientAdminModules: () => req("/client/admin/modules"),
+  clientAdminScopeOptions: () => req("/client/admin/scope-options"),
+  clientAdminOrgs: () => req("/client/admin/orgs"),
+  clientAdminSaveOrg: (id: number | null, data: any) => req(id ? `/client/admin/orgs/${id}` : "/client/admin/orgs", { method: id ? "PUT" : "POST", body: JSON.stringify(data) }),
+  clientAdminUsers: (orgId: number) => req(`/client/admin/orgs/${orgId}/users`),
+  clientAdminCreateUser: (orgId: number, data: any) => req(`/client/admin/orgs/${orgId}/users`, { method: "POST", body: JSON.stringify(data) }),
+  clientAdminOverrides: (userId: number, overrides: Record<string, boolean>) => req(`/client/admin/users/${userId}/modules`, { method: "PUT", body: JSON.stringify({ overrides }) }),
+  clientAdminLogs: (params: Record<string, string>): Promise<Paged> => reqPaged(`/client/admin/logs?${new URLSearchParams(params).toString()}`),
+
   // MIS: report & dashboard catalog
   misMenu: () => req("/mis/my-menu"),
   misReport: (code: string) => req(`/mis/reports/${encodeURIComponent(code)}`),

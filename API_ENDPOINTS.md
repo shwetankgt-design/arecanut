@@ -236,3 +236,9 @@ Full design: `docs/MIS_ACCESS_DESIGN.md`. Summary: role `mis_user` (ROLE_DEFS, `
 `/dashboard/kpis` and `/dashboard/yield-benchmarks` read `submitted_surveys()` (= `scoped_surveys()` minus drafts; NULL status counts as submitted), so "Farmers Surveyed" equals the **Submitted** total of Farmer Records (not All, which also includes drafts). The dashboard drill-down opens `/farmers?status=submitted&...`. MIS report `rpt.district_coverage` counts submitted farmers and shows drafts in a separate, uncounted column (records with no district are left out of that report).
 
 `GET /dashboard/kpis` also returns `record_status: {submitted, draft, total}` (scoped to what the user may see); the dashboard shows Total / Submitted / Draft cards, each clickable to the matching Farmer Records view (MIS users: inert).
+
+
+## Client User role (`/api/client/*`)
+Role `client`: external organisation users, read-only, limited to assigned modules and data scope; masked fields never returned. Full spec, KPI table and tests: `docs/CLIENT_MODULE.md`.
+Admin endpoints under `/api/client/admin` (orgs, org users, per-user module overrides, module registry, scope options, access log).
+Client users are created from the admin **Clients** screen only (`POST /api/users` rejects role `client`).

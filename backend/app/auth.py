@@ -50,7 +50,11 @@ def create_access_token(user: m.User) -> str:
     return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
-def get_current_user(token: Optional[str] = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> m.User:
+CLIENT_ROLE = "client"
+CLIENT_ALLOWED_PREFIXES = ("/api/client/", "/api/auth/")
+
+
+def get_current_user(request: Request, token: Optional[str] = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> m.User:
     credentials_error = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -71,6 +75,10 @@ def get_current_user(token: Optional[str] = Depends(oauth2_scheme), db: Session 
     user = db.query(m.User).get(int(user_id))
     if not user or not user.is_active:
         raise credentials_error
+    # Client users (external organisations) may only ever reach /api/client/* and the auth endpoints.
+    # Enforced here, once, so every present and future endpoint is closed to them by default.
+    if user.role == CLIENT_ROLE and not request.url.path.startswith(CLIENT_ALLOWED_PREFIXES):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Client users can only use their assigned client modules.")
     return user
 
 
@@ -104,6 +112,7 @@ PERMISSION_MODULES = [m["key"] for m in MODULE_DEFS]
 ROLE_DEFS = [
     {"key": "field", "label": "Field Team", "description": "Works with records they own; access is set by the modules below.", "uses_modules": True, "single_instance": False},
     {"key": "admin", "label": "Administrator", "description": "Full access to every module, all records and user management.", "uses_modules": False, "single_instance": True},
+    {"key": "client", "label": "Client User", "description": "External client: read-only dashboard and farmer records, limited to the client organisation's data scope.", "uses_modules": False, "uses_client": True, "single_instance": False},
     {"key": "mis_user", "label": "MIS User", "description": "Reports and dashboards only; the admin assigns which ones (new items can be granted automatically).", "uses_modules": False, "uses_catalog": True, "single_instance": False},
 ]
 ROLE_KEYS = [r["key"] for r in ROLE_DEFS]

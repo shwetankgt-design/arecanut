@@ -57,6 +57,9 @@ class UserAdminOut(BaseModel):
     mis_access_all: bool = False
     catalog_item_ids: List[int] = []
     data_scope_districts: List[str] = Field(default=[], validation_alias="data_scope_district_list")
+    client_id: Optional[int] = None
+    client_name: Optional[str] = None
+    client_module_codes: List[str] = []
     is_active: bool
     created_at: datetime
 
@@ -90,6 +93,9 @@ class UserCreateIn(BaseModel):
     mis_access_all: bool = False
     catalog_item_ids: List[int] = []
     data_scope_districts: List[str] = []
+    # Client User role only (see client.py)
+    client_id: Optional[int] = None
+    client_module_codes: Optional[List[str]] = None
 
     @field_validator("role")
     @classmethod
@@ -117,6 +123,8 @@ class UserUpdateIn(BaseModel):
     mis_access_all: Optional[bool] = None
     catalog_item_ids: Optional[List[int]] = None
     data_scope_districts: Optional[List[str]] = None
+    client_id: Optional[int] = None
+    client_module_codes: Optional[List[str]] = None
     is_active: Optional[bool] = None
     new_password: Optional[str] = Field(None, min_length=1, max_length=200)
 

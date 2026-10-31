@@ -31,7 +31,25 @@ class User(Base):
     mis_access_all = Column(Boolean, nullable=False, default=False)
     # Optional data scope for MIS users: comma-separated district names; blank = all districts.
     data_scope_districts = Column(String, nullable=True)
+    # Role "client": the client organisation this user belongs to (see client.py).
+    client_id = Column(Integer, ForeignKey("client_org.id"), nullable=True, index=True)
     catalog_links = relationship("UserCatalogAccess", cascade="all, delete-orphan", foreign_keys="UserCatalogAccess.user_id")
+    client_org = relationship("ClientOrg", foreign_keys=[client_id])
+    client_overrides = relationship("ClientUserModule", cascade="all, delete-orphan", foreign_keys="ClientUserModule.user_id")
+
+    @property
+    def client_name(self):
+        return self.client_org.name if self.client_org else None
+
+    @property
+    def client_module_codes(self):
+        """Modules a client user effectively has: the client group's grants adjusted by this user's overrides."""
+        if not self.client_org:
+            return []
+        mods = {c.module_code for c in self.client_org.modules}
+        for o in self.client_overrides:
+            (mods.add if o.granted else mods.discard)(o.module_code)
+        return sorted(mods)
 
     @property
     def catalog_item_ids(self):
@@ -697,3 +715,55 @@ class CatalogAccessLog(Base):
     item_code = Column(String, nullable=False, index=True)
     ip_address = Column(String, nullable=True)
     device_id = Column(String, nullable=True)
+
+
+# ---------------- CLIENT USERS (see client.py) ----------------
+
+class ClientOrg(Base):
+    """An external organisation that commissions surveys; its users (role "client") see only its data scope."""
+    __tablename__ = "client_org"
+    id = Column(Integer, primary_key=True)
+    name = Column(String, unique=True, nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    scopes = relationship("ClientScope", cascade="all, delete-orphan")
+    modules = relationship("ClientModule", cascade="all, delete-orphan")
+
+
+class ClientScope(Base):
+    """One entitlement row: scope_type in district | taluka | survey_year. A type with no rows = unrestricted on that axis."""
+    __tablename__ = "client_scope"
+    id = Column(Integer, primary_key=True)
+    client_id = Column(Integer, ForeignKey("client_org.id"), nullable=False, index=True)
+    scope_type = Column(String, nullable=False)
+    value = Column(String, nullable=False)
+
+
+class ClientModule(Base):
+    """Module (from the code registry in client.py) granted to a whole client group."""
+    __tablename__ = "client_module"
+    id = Column(Integer, primary_key=True)
+    client_id = Column(Integer, ForeignKey("client_org.id"), nullable=False, index=True)
+    module_code = Column(String, nullable=False)
+
+
+class ClientUserModule(Base):
+    """Optional per-user override of the group's modules: granted True adds one, False removes one."""
+    __tablename__ = "client_user_module"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("auth_user.id"), nullable=False, index=True)
+    module_code = Column(String, nullable=False)
+    granted = Column(Boolean, nullable=False, default=True)
+
+
+class ClientAccessLog(Base):
+    """Every record view, list, dashboard drill and export by a client user."""
+    __tablename__ = "client_access_log"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("auth_user.id"), nullable=False, index=True)
+    client_id = Column(Integer, nullable=True, index=True)
+    action = Column(String, nullable=False)       # view_record | list | export | dashboard | denied
+    farmer_id = Column(String, nullable=True)
+    detail = Column(String, nullable=True)
+    ip_address = Column(String, nullable=True)
+    at = Column(DateTime, default=datetime.datetime.utcnow, index=True)

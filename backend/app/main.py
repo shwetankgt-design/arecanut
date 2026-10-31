@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 import datetime
 
 from .config import get_settings
-from .db import Base, engine, get_db, sync_missing_columns, sync_nullable_columns, migrate_roles_and_permissions
+from .db import Base, engine, get_db, sync_missing_columns, sync_nullable_columns, migrate_roles_and_permissions, ensure_indexes
 from . import models as m
 from .schemas import (
     SurveyIn, SurveyOut, SurveyDraftIn, FarmerLookup, LoginIn, TokenOut, UserOut, RefreshIn, LogoutIn,
@@ -34,11 +34,13 @@ from .email_utils import send_password_reset_email
 from .master_data import router as master_data_router
 from .fpo_consultation import router as fpo_consultation_router
 from . import mis
+from . import client as client_mod
 from .mis import router as mis_router
 
 settings = get_settings()
 Base.metadata.create_all(bind=engine)
 sync_missing_columns()
+ensure_indexes()
 sync_nullable_columns()
 migrate_roles_and_permissions()
 mis.sync_catalog()  # register every report/dashboard declared in code (mis.py) into the catalog table
@@ -105,6 +107,8 @@ app.add_middleware(
 app.include_router(master_data_router)
 app.include_router(fpo_consultation_router)
 app.include_router(mis_router)
+app.include_router(client_mod.router)
+app.include_router(client_mod.admin)
 
 
 # ---------------- AUTH ----------------
@@ -211,6 +215,8 @@ def create_user(
         existing_admin = db.query(m.User).filter(m.User.role == "admin").first()
         if existing_admin:
             raise HTTPException(status_code=400, detail="An admin account already exists — only one admin is permitted.")
+    if payload.role == client_mod.CLIENT_ROLE and not payload.client_id:
+        raise HTTPException(status_code=400, detail="Select the client organisation for this user.")
 
     if db.query(m.User).filter(m.User.username == payload.username).first():
         raise HTTPException(status_code=400, detail="That username is already taken.")
@@ -231,6 +237,8 @@ def create_user(
     if payload.role == "field" and "data_verifier" in payload.permissions:
         _set_user_mappings(db, user, payload.mapped_user_ids)
     db.add(user)
+    if payload.role == client_mod.CLIENT_ROLE:
+        client_mod.apply_user_client(db, user, payload.client_id, payload.client_module_codes)
     if payload.role == mis.MIS_ROLE:
         db.flush()  # need user.id for the assignment log
         mis.apply_access(db, admin, user, mis_access_all=payload.mis_access_all, item_ids=payload.catalog_item_ids, districts=payload.data_scope_districts)
@@ -282,6 +290,11 @@ def update_user(
             mis.apply_access(db, admin, user, mis_access_all=payload.mis_access_all, item_ids=payload.catalog_item_ids, districts=payload.data_scope_districts)
     elif user.mis_access_all or user.catalog_links or user.data_scope_districts:
         mis.clear_access(db, admin, user)  # no longer an MIS user: drop (and log) the old assignments
+    if user.role == client_mod.CLIENT_ROLE:
+        if payload.client_id is not None or payload.client_module_codes is not None or not user.client_id:
+            client_mod.apply_user_client(db, user, payload.client_id or user.client_id, payload.client_module_codes)
+    elif user.client_id:
+        client_mod.clear_user_client(user)
     if payload.is_active is not None:
         user.is_active = payload.is_active
     if payload.new_password:
@@ -559,6 +572,8 @@ def owned_by(user: m.User):
     """
     if user.role == "admin":
         return None
+    if user.role == client_mod.CLIENT_ROLE:
+        return false()  # client users never read surveys through the record-keeping endpoints (also blocked in get_current_user)
     if user.role == mis.MIS_ROLE:
         # MIS users read aggregate data; an optional district scope narrows it.
         districts = user.data_scope_district_list

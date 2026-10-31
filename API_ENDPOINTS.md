@@ -230,3 +230,9 @@ Lists that can grow large are paged **server-side** with `limit` + `offset` and 
 ## MIS User role — report & dashboard catalog
 
 Full design: `docs/MIS_ACCESS_DESIGN.md`. Summary: role `mis_user` (ROLE_DEFS, `uses_catalog`); tables `catalog_item`, `user_catalog_access`, `catalog_assignment_log`, `catalog_access_log`; user fields `mis_access_all`, `data_scope_districts`. Items self-register via `@report(...)` / `register_item(...)` in `backend/app/mis.py` and sync at startup. Endpoints under `/api/mis` (my-menu, reports/{code}, catalog list/patch/sync, users/{id}/access, access/bulk, users/{id}/copy-from/{src}, logs/access, logs/assignments). MIS users get 403 from every record-keeping API; `/dashboard/*` needs `dash.programme`, `/plots` needs `rpt.plots_map`. Per-user allowed-code cache TTL 30 s, invalidated on change.
+
+## Dashboard counts submitted surveys only
+
+`/dashboard/kpis` and `/dashboard/yield-benchmarks` read `submitted_surveys()` (= `scoped_surveys()` minus drafts; NULL status counts as submitted), so "Farmers Surveyed" equals the **Submitted** total of Farmer Records (not All, which also includes drafts). The dashboard drill-down opens `/farmers?status=submitted&...`. MIS report `rpt.district_coverage` counts submitted farmers and shows drafts in a separate, uncounted column (records with no district are left out of that report).
+
+`GET /dashboard/kpis` also returns `record_status: {submitted, draft, total}` (scoped to what the user may see); the dashboard shows Total / Submitted / Draft cards, each clickable to the matching Farmer Records view (MIS users: inert).

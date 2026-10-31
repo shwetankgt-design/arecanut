@@ -447,18 +447,20 @@ def _surveys(db: Session, user: m.User):
 
 
 @report(code="rpt.district_coverage", name="District & Taluka Coverage", category="Coverage", display_order=30,
-        description="Farmers surveyed and areca area by district and taluka.")
+        description="Submitted farmer surveys and areca area by district and taluka (drafts are shown separately).")
 def district_coverage(db: Session, user: m.User) -> dict:
     F = m.FarmerSurvey
     rows = (_surveys(db, user).filter(F.district.isnot(None))
-            .with_entities(F.district, F.taluka, func.count(F.id), func.coalesce(func.sum(F.areca_area_acres), 0.0),
+            .with_entities(F.district, F.taluka,
+                           func.sum(case((F.status == "draft", 0), else_=1)),
+                           func.coalesce(func.sum(case((F.status == "draft", 0.0), else_=F.areca_area_acres)), 0.0),
                            func.sum(case((F.status == "draft", 1), else_=0)))
             .group_by(F.district, F.taluka).order_by(F.district, F.taluka).all())
     data = [{"district": d, "taluka": t or "—", "farmers": n, "areca_area_acres": round(float(a), 2), "drafts": int(dr or 0)} for d, t, n, a, dr in rows]
     return {"title": "District & Taluka Coverage",
             "columns": [{"key": "district", "label": "District", "type": "text"}, {"key": "taluka", "label": "Taluka", "type": "text"},
-                        {"key": "farmers", "label": "Farmers", "type": "number"}, {"key": "areca_area_acres", "label": "Areca area (acres)", "type": "number"},
-                        {"key": "drafts", "label": "Of which drafts", "type": "number"}],
+                        {"key": "farmers", "label": "Farmers surveyed", "type": "number"}, {"key": "areca_area_acres", "label": "Areca area (acres)", "type": "number"},
+                        {"key": "drafts", "label": "Drafts (not counted)", "type": "number"}],
             "rows": data,
             "summary": {"farmers": sum(r["farmers"] for r in data), "areca_area_acres": round(sum(r["areca_area_acres"] for r in data), 2)}}
 

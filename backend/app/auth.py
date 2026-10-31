@@ -86,7 +86,27 @@ def require_role(*roles: str):
 # screen — kept here (not in main.py) so auth.py has no import-order dependency
 # on main.py, but main.py re-exports this as the source of truth for the API
 # response the frontend renders checkboxes from.
-PERMISSION_MODULES = ["survey_entry", "farmer_records", "plots_map", "fpo_consultation", "data_verifier"]
+# Single source of truth for the grantable modules and the roles. The User Management screen
+# renders its multi-select lists from these (GET /api/users/access-options), so a new module or
+# role is ONE entry here — no frontend change needed. Add a module's permission checks where it
+# is used (require_permission("<key>")).
+MODULE_DEFS = [
+    {"key": "survey_entry", "label": "New Survey Entry", "description": "Create and edit farmer surveys, including saving drafts."},
+    {"key": "farmer_records", "label": "Farmer Records", "description": "View, search, filter and export farmer records; edit them."},
+    {"key": "plots_map", "label": "Plots & Map", "description": "See plot boundaries on the map and capture new boundaries."},
+    {"key": "fpo_consultation", "label": "FPO Consultation", "description": "Run and review FPO screening consultations."},
+    {"key": "data_verifier", "label": "Data Verifier", "description": "Verify the records of mapped users and freeze / unfreeze them (web only).", "requires_mapped_users": True},
+]
+PERMISSION_MODULES = [m["key"] for m in MODULE_DEFS]
+
+# uses_modules: the role's access comes from the user's module list (admin implicitly has all).
+# single_instance: at most one user may hold the role (enforced in main.py for "admin").
+ROLE_DEFS = [
+    {"key": "field", "label": "Field Team", "description": "Works with records they own; access is set by the modules below.", "uses_modules": True, "single_instance": False},
+    {"key": "admin", "label": "Administrator", "description": "Full access to every module, all records and user management.", "uses_modules": False, "single_instance": True},
+    {"key": "mis_user", "label": "MIS User", "description": "Reports and dashboards only; the admin assigns which ones (new items can be granted automatically).", "uses_modules": False, "uses_catalog": True, "single_instance": False},
+]
+ROLE_KEYS = [r["key"] for r in ROLE_DEFS]
 
 
 def require_permission(module: str):
@@ -99,6 +119,8 @@ def require_permission(module: str):
     def dependency(user: m.User = Depends(get_current_user)) -> m.User:
         if user.role == "admin":
             return user
+        if user.role == "mis_user":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="MIS users can only open their assigned reports and dashboards.")
         granted = (user.permissions or "").split(",")
         if module not in granted:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Missing permission: {module}")
@@ -117,6 +139,8 @@ def require_any_permission(*modules: str):
     def dependency(user: m.User = Depends(get_current_user)) -> m.User:
         if user.role == "admin":
             return user
+        if user.role == "mis_user":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="MIS users can only open their assigned reports and dashboards.")
         granted = set((user.permissions or "").split(","))
         if not granted.intersection(modules):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Missing permission: one of {', '.join(modules)}")

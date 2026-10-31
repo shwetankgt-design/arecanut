@@ -7,7 +7,7 @@ import { pendingCount } from "./offlineQueue";
 export interface AuthUser {
   username: string;
   full_name: string;
-  role: "admin" | "field";
+  role: "admin" | "field" | "mis_user";
   permissions: string[];
 }
 

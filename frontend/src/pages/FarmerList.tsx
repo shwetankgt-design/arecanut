@@ -9,6 +9,8 @@ import { analytics } from "../lib/analytics";
 import { useAuth } from "../AuthContext";
 import { listQueuedDrafts } from "../offlineDraftQueue";
 import { subscribe } from "../lib/syncManager";
+import Pagination from "../components/Pagination";
+import { PAGE_SIZES, DEFAULT_PAGE_SIZE } from "../lib/paging";
 
 // CR-19: columns the Farmer Records table can be sorted by, matching the
 // backend's SORTABLE_FIELDS whitelist — keep these in sync with main.py.
@@ -42,16 +44,49 @@ export default function FarmerList() {
   const sortBy = searchParams.get("sort_by") || "entry_timestamp";
   const sortDir = searchParams.get("sort_dir") === "asc" ? "asc" : "desc";
 
+  // Paging state lives in the URL (?page=3&page_size=50) so refresh / back / shared links keep the place.
+  const page = Math.max(1, Number(searchParams.get("page")) || 1);
+  const rawSize = Number(searchParams.get("page_size"));
+  const pageSize = PAGE_SIZES.includes(rawSize) ? rawSize : DEFAULT_PAGE_SIZE;
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+
   const filterParams = useMemo(() => {
     const obj: Record<string, string> = {};
-    searchParams.forEach((v, k) => { if (k !== "queued") obj[k] = v; });
+    searchParams.forEach((v, k) => { if (k !== "queued" && k !== "page" && k !== "page_size") obj[k] = v; });
     return obj;
   }, [searchParams]);
 
-  const load = () => {
-    const params = { ...filterParams, ...(q ? { q } : {}) };
-    api.listSurveys(Object.keys(params).length ? params : undefined).then(setRows).catch(console.error);
+  const goToPage = (p: number) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("page", String(p));
+    setSearchParams(next);
+    setSelected(new Set());
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
+  const changePageSize = (size: number) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("page_size", String(size));
+    next.delete("page");
+    setSearchParams(next);
+  };
+
+  const load = () => {
+    const params = { ...filterParams, ...(q ? { q } : {}), limit: String(pageSize), offset: String((page - 1) * pageSize) };
+    setLoading(true);
+    api.listSurveysPaged(params)
+      .then(({ items, total: t }) => {
+        // A filter or deletion can leave the current page past the end — jump back to the last real page.
+        if (items.length === 0 && t > 0 && page > 1) { goToPage(Math.ceil(t / pageSize)); return; }
+        setRows(items);
+        setTotal(t);
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  };
+
+  // Searching starts again from page 1.
+  const runSearch = () => { if (page > 1) goToPage(1); else load(); };
 
   const toggleSort = (key: string) => {
     const next = new URLSearchParams(searchParams);
@@ -61,6 +96,7 @@ export default function FarmerList() {
       next.set("sort_by", key);
       next.set("sort_dir", "asc");
     }
+    next.delete("page");
     setSearchParams(next);
   };
 
@@ -127,6 +163,7 @@ export default function FarmerList() {
   const setParam = (key: string, value: string) => {
     const next = new URLSearchParams(searchParams);
     if (value) next.set(key, value); else next.delete(key);
+    next.delete("page");
     setSearchParams(next);
   };
   const selectedUserIds = (searchParams.get("user_ids") || "").split(",").filter(Boolean);
@@ -165,6 +202,7 @@ export default function FarmerList() {
   const removeFilter = (key: string) => {
     const next = new URLSearchParams(searchParams);
     next.delete(key);
+    next.delete("page");
     setSearchParams(next);
   };
 
@@ -173,6 +211,7 @@ export default function FarmerList() {
     const next = new URLSearchParams(searchParams);
     if (value === "all") next.delete("status");
     else next.set("status", value);
+    next.delete("page");
     setSearchParams(next);
   };
 
@@ -180,7 +219,7 @@ export default function FarmerList() {
     <div className="flex flex-col gap-3">
       <div>
         <h1 className="text-xl font-bold text-[var(--gt-purple-dark)]">{tr("farmerListTitle", lang)}</h1>
-        <p className="text-sm text-[var(--gt-text-muted)]">{displayRows.length} {tr("records", lang)}</p>
+        <p className="text-sm text-[var(--gt-text-muted)]">{(total + visibleLocalDrafts.length).toLocaleString("en-IN")} {tr("records", lang)}</p>
       </div>
 
       {justQueued && (
@@ -289,10 +328,10 @@ export default function FarmerList() {
             placeholder={tr("searchPlaceholder", lang)}
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && load()}
+            onKeyDown={(e) => e.key === "Enter" && runSearch()}
           />
         </div>
-        <button className="gt-btn-secondary" onClick={load}>{tr("search", lang)}</button>
+        <button className="gt-btn-secondary" onClick={runSearch}>{tr("search", lang)}</button>
         <button className="gt-btn-secondary flex items-center gap-1.5" onClick={handleExport} disabled={exporting}>
           <Download size={15} /> {exporting ? "Exporting…" : "Download Excel"}
         </button>
@@ -393,6 +432,8 @@ export default function FarmerList() {
           </tbody>
         </table>
       </div>
+
+      <Pagination page={page} pageSize={pageSize} total={total} onPage={goToPage} onPageSize={changePageSize} loading={loading} noun="records" />
     </div>
   );
 }

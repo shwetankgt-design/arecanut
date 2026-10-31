@@ -13,7 +13,7 @@ gate; `status` ("draft" -> "submitted") is set by the client when the user
 finishes the last step, purely advisory bookkeeping, not a validation gate.
 """
 import datetime
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, Query
 from sqlalchemy.orm import Session
 
 from . import models as m
@@ -26,14 +26,21 @@ router = APIRouter(prefix="/api/fpo-consultations", tags=["fpo-consultation"])
 
 @router.get("", response_model=list[FPOConsultationListItem])
 def list_fpo_consultations(
+    response: Response,
     status: str | None = None,
+    limit: int | None = Query(None, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     user: m.User = Depends(require_permission("fpo_consultation")),
 ):
     q = db.query(m.FPOConsultation)
     if status:
         q = q.filter(m.FPOConsultation.status == status)
-    return q.order_by(m.FPOConsultation.updated_at.desc()).all()
+    q = q.order_by(m.FPOConsultation.updated_at.desc())
+    response.headers["X-Total-Count"] = str(q.order_by(None).count())
+    if limit is not None:
+        q = q.offset(offset).limit(limit)
+    return q.all()
 
 
 @router.get("/{consultation_id}", response_model=FPOConsultationOut)

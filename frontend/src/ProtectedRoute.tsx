@@ -9,9 +9,11 @@ interface Props {
    * for a route (like the New Entry landing page) that's a front door to
    * several independently-grantable modules. */
   requireAny?: string[];
+  /** MIS pages: only MIS users (and admins) may open these. */
+  mis?: boolean;
 }
 
-export default function ProtectedRoute({ require, requireAny }: Props) {
+export default function ProtectedRoute({ require, requireAny, mis }: Props) {
   const { user, loading, hasPermission } = useAuth();
   const location = useLocation();
 
@@ -20,6 +22,13 @@ export default function ProtectedRoute({ require, requireAny }: Props) {
   }
   if (!user) {
     return <Navigate to="/login" state={{ from: location.pathname }} replace />;
+  }
+  // An MIS user may only ever see the MIS pages — anything else bounces to their reports landing page.
+  if (user.role === "mis_user" && !location.pathname.startsWith("/mis")) {
+    return <Navigate to="/mis" replace />;
+  }
+  if (mis && user.role !== "mis_user" && user.role !== "admin") {
+    return <Navigate to="/" replace />;
   }
   if (require === "admin" && user.role !== "admin") {
     return <Navigate to="/" replace />;

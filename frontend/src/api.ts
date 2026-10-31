@@ -138,7 +138,7 @@ async function tryRefresh(): Promise<boolean> {
 
 const AUTH_ENDPOINTS = ["/auth/login", "/auth/refresh", "/auth/forgot-password", "/auth/reset-password"];
 
-async function req(path: string, options?: RequestInit) {
+async function reqRaw(path: string, options?: RequestInit): Promise<Response> {
   let res = await rawFetchOrThrow(path, options, getToken());
 
   // A 401 from login itself (bad credentials) or from the other public auth
@@ -161,7 +161,21 @@ async function req(path: string, options?: RequestInit) {
     const body = await res.json().catch(() => ({}));
     throw new ApiError(formatErrorDetail(body.detail, res.status), res.status);
   }
-  return res.json();
+  return res;
+}
+
+async function req(path: string, options?: RequestInit) {
+  return (await reqRaw(path, options)).json();
+}
+
+// Paged list: the backend returns a plain array and the total number of matching rows
+// in the X-Total-Count header.
+export interface Paged<T = any> { items: T[]; total: number }
+async function reqPaged(path: string): Promise<Paged> {
+  const res = await reqRaw(path);
+  const items = await res.json();
+  const total = Number(res.headers.get("X-Total-Count"));
+  return { items, total: Number.isFinite(total) && res.headers.has("X-Total-Count") ? total : items.length };
 }
 
 export const api = {
@@ -183,6 +197,7 @@ export const api = {
   machines: () => req("/masters/machines"),
   options: (listCode: string) => req(`/masters/options?list_code=${encodeURIComponent(listCode)}`),
   lookupFarmer: (q: string) => req(`/farmer-master/lookup?q=${encodeURIComponent(q)}`),
+  listSurveysPaged: (params: Record<string, string>): Promise<Paged> => reqPaged(`/surveys?${new URLSearchParams(params).toString()}`),
   listSurveys: (params?: Record<string, string>) => {
     const qs = params ? "?" + new URLSearchParams(params).toString() : "";
     return req(`/surveys${qs}`);
@@ -214,6 +229,15 @@ export const api = {
   bulkFreeze: (surveyIds: number[], frozen: boolean, note?: string) =>
     req(`/surveys/freeze`, { method: "POST", body: JSON.stringify({ survey_ids: surveyIds, frozen, note: note || null }) }),
   freezeLog: (id: number) => req(`/surveys/${id}/freeze-log`),
+  // MIS: report & dashboard catalog
+  misMenu: () => req("/mis/my-menu"),
+  misReport: (code: string) => req(`/mis/reports/${encodeURIComponent(code)}`),
+  misCatalog: (params?: Record<string, string>) => req(`/mis/catalog${params ? "?" + new URLSearchParams(params).toString() : ""}`),
+  patchCatalogItem: (id: number, data: { status?: string; display_order?: number }) => req(`/mis/catalog/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  syncCatalog: () => req("/mis/catalog/sync", { method: "POST" }),
+  bulkMisAccess: (data: { user_ids: number[]; item_ids: number[]; mode: "add" | "remove" | "replace" }) => req("/mis/access/bulk", { method: "POST", body: JSON.stringify(data) }),
+  misAccessLogPaged: (params: Record<string, string>): Promise<Paged> => reqPaged(`/mis/logs/access?${new URLSearchParams(params).toString()}`),
+  misAssignmentLogPaged: (params: Record<string, string>): Promise<Paged> => reqPaged(`/mis/logs/assignments?${new URLSearchParams(params).toString()}`),
   deleteSurvey: (id: number) => req(`/surveys/${id}`, { method: "DELETE" }),
   // Save as Draft: unlike createSurvey/updateSurvey, the backend applies no
   // completeness validation to these — a draft can be (and usually is)
@@ -229,14 +253,17 @@ export const api = {
   listPlots: (onlyWithBoundary = true) => req(`/plots?only_with_boundary=${onlyWithBoundary}`),
   listUsers: () => req("/users"),
   permissionModules: (): Promise<string[]> => req("/users/permission-modules"),
+  accessOptions: (): Promise<{ roles: any[]; modules: any[] }> => req("/users/access-options"),
   createUser: (data: any) => req("/users", { method: "POST", body: JSON.stringify(data) }),
   updateUser: (id: number, data: any) => req(`/users/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   masterTables: () => req("/admin/master-data/tables"),
   masterRows: (table: string) => req(`/admin/master-data/${table}`),
+  masterRowsPaged: (table: string, params: Record<string, string>): Promise<Paged> => reqPaged(`/admin/master-data/${table}?${new URLSearchParams(params).toString()}`),
   createMasterRow: (table: string, data: any) => req(`/admin/master-data/${table}`, { method: "POST", body: JSON.stringify(data) }),
   updateMasterRow: (table: string, id: number, data: any) => req(`/admin/master-data/${table}/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteMasterRow: (table: string, id: number) => req(`/admin/master-data/${table}/${id}`, { method: "DELETE" }),
   listFpoConsultations: (status?: string) => req(`/fpo-consultations${status ? `?status=${status}` : ""}`),
+  listFpoConsultationsPaged: (params: Record<string, string>): Promise<Paged> => reqPaged(`/fpo-consultations?${new URLSearchParams(params).toString()}`),
   getFpoConsultation: (id: number) => req(`/fpo-consultations/${id}`),
   createFpoConsultation: (data: any) => req("/fpo-consultations", { method: "POST", body: JSON.stringify(data) }),
   updateFpoConsultation: (id: number, data: any) => req(`/fpo-consultations/${id}`, { method: "PUT", body: JSON.stringify(data) }),

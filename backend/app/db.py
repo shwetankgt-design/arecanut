@@ -131,3 +131,5 @@ def migrate_roles_and_permissions():
             "UPDATE auth_user SET permissions = 'survey_entry,farmer_records,plots_map' "
             "WHERE role = 'field' AND permissions IS NULL"
         ))
+        if "mis_access_all" in cols:
+            conn.execute(text("UPDATE auth_user SET mis_access_all = :f WHERE mis_access_all IS NULL"), {"f": False})

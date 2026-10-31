@@ -43,7 +43,7 @@ export default function Login() {
             <Sprout size={28} />
           </div>
           <div className="text-lg font-bold text-[var(--gt-purple-dark)]">Madhyastha</div>
-          <div className="text-xs text-[var(--gt-text-muted)]">Karnataka · NCCF Data Collection</div>
+          <div className="text-xs text-[var(--gt-text-muted)]">Karnataka · DSAreca Data Collection</div>
         </div>
 
         {offline && (

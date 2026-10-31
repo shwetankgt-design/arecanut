@@ -456,6 +456,8 @@ def get_options(list_code: str = Query(...), db: Session = Depends(get_db)):
 @app.get("/api/farmer-master/lookup", response_model=Optional[FarmerLookup], tags=["Farmer Lookup"])
 def lookup_farmer(q: str = Query(..., description="Aadhaar, Mobile number, or Farmer ID"), db: Session = Depends(get_db), user: m.User = Depends(mis.reject_mis)):
     q = q.strip()
+    if q.upper().startswith("DSA/KA/"):
+        q = q[len("DSA/KA/"):]  # the id as displayed in the app; stored ids keep their original prefix
     # Mobile/Aadhaar stay exact-match — they're sensitive identifiers, and partial
     # matching on them would be both a privacy smell and ambiguous (many farmers
     # could share a partial digit sequence). Farmer ID is different: it's not

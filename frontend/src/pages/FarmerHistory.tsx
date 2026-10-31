@@ -1,3 +1,4 @@
+import { serialNo } from "../lib/farmerSerial";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, History } from "lucide-react";
@@ -67,7 +68,7 @@ export default function FarmerHistory() {
             <History size={20} /> Farmer History
           </h1>
           <p className="text-sm text-[var(--gt-text-muted)]">
-            {current?.farmer_name} &middot; {current?.farmer_id} &middot; {sorted.length} survey{sorted.length === 1 ? "" : "s"} on record
+            {current?.farmer_name} &middot; {serialNo(current?.farmer_id)} &middot; {sorted.length} survey{sorted.length === 1 ? "" : "s"} on record
           </p>
         </div>
         <button className="gt-btn-secondary flex items-center gap-1.5" onClick={() => navigate(`/farmers/${id}`)}>

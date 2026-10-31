@@ -1,3 +1,4 @@
+import { serialNo } from "../lib/farmerSerial";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { MapContainer, TileLayer, Polygon, Popup, Marker, Tooltip, useMap, useMapEvents } from "react-leaflet";
@@ -199,7 +200,7 @@ export default function PlotsRegistry({ embedded = false }: { embedded?: boolean
               <Popup>
                 <div className="text-sm">
                   <div className="font-semibold">{name}</div>
-                  {plot.farmer_id && <div className="text-xs">{plot.farmer_id}{plot.status === "draft" ? " · draft" : ""}</div>}
+                  {plot.farmer_id && <div className="text-xs">{serialNo(plot.farmer_id)}{plot.status === "draft" ? " · draft" : ""}</div>}
                   <div>{[plot.village, plot.taluka].filter(Boolean).join(", ") || "—"}</div>
                   <div>{plot.district || "—"}</div>
                   <div className="mt-1">

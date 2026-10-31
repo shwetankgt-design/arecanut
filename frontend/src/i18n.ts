@@ -87,7 +87,7 @@ export const LABELS: Record<string, { en: string; kn: string }> = {
 
   // App shell / nav
   appTitle: { en: "Madhyastha", kn: "ಮಧ್ಯಸ್ಥ" }, // CR-20: platform renamed from "Arecanut Farmer Survey"
-  appSubtitle: { en: "Karnataka · NCCF Data Collection", kn: "ಕರ್ನಾಟಕ · NCCF ಮಾಹಿತಿ ಸಂಗ್ರಹ" },
+  appSubtitle: { en: "Karnataka · DSAreca Data Collection", kn: "ಕರ್ನಾಟಕ · DSAreca ಮಾಹಿತಿ ಸಂಗ್ರಹ" },
   navDashboard: { en: "Dashboard", kn: "ಡ್ಯಾಶ್‌ಬೋರ್ಡ್" },
   navNewEntry: { en: "New Entry", kn: "ಹೊಸ ನಮೂದು" },
   navNewSurveyEntry: { en: "New Survey Entry", kn: "ಹೊಸ ಸಮೀಕ್ಷೆ ನಮೂದು" },
@@ -335,7 +335,7 @@ export const KN_TEXT: Record<string, string> = {
   "Required because Crop Insurance = Yes": "ಬೆಳೆ ವಿಮೆ = ಹೌದು ಆಗಿರುವುದರಿಂದ ಅಗತ್ಯ",
 
   // --- Placeholders & inline notes ---------------------------------------
-  "e.g. 9876543210 or NCCF/KA/0007": "ಉದಾ. 9876543210 ಅಥವಾ NCCF/KA/0007",
+  "e.g. 9876543210 or DSA/KA/0007": "ಉದಾ. 9876543210 ಅಥವಾ DSA/KA/0007",
   "Type or pick a scheme below": "ಕೆಳಗೆ ಯೋಜನೆಯನ್ನು ಟೈಪ್ ಮಾಡಿ ಅಥವಾ ಆರಿಸಿ",
   "Type a village name…": "ಗ್ರಾಮದ ಹೆಸರು ಟೈಪ್ ಮಾಡಿ…",
   "No matching village found.": "ಹೊಂದಾಣಿಕೆಯ ಗ್ರಾಮ ಕಂಡುಬಂದಿಲ್ಲ.",

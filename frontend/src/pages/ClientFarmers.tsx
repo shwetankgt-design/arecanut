@@ -1,3 +1,4 @@
+import { serialNo } from "../lib/farmerSerial";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertCircle, ArrowDown, ArrowUp, Columns3, Download, FilterX, Search } from "lucide-react";
@@ -141,7 +142,7 @@ export default function ClientFarmers() {
               <tr key={String(r.farmer_id)} className="border-b border-[var(--gt-border)] last:border-none hover:bg-[#FAF8FC] cursor-pointer" onClick={() => openFarmer(String(r.farmer_id))}>
                 {(res?.columns || []).map((c) => (
                   <td key={c.key} className="py-2 px-3 whitespace-nowrap">
-                    {c.key === "farmer_id" ? <button type="button" className="text-[var(--gt-purple)] hover:underline" onClick={(e) => { e.stopPropagation(); openFarmer(String(r.farmer_id)); }}>{String(r[c.key])}</button> : <span className={r[c.key] === null || r[c.key] === "" ? "text-[var(--gt-text-muted)]" : ""}>{show(r[c.key], c.key)}</span>}
+                    {c.key === "farmer_id" ? <button type="button" className="text-[var(--gt-purple)] hover:underline" onClick={(e) => { e.stopPropagation(); openFarmer(String(r.farmer_id)); }}>{serialNo(String(r[c.key]))}</button> : <span className={r[c.key] === null || r[c.key] === "" ? "text-[var(--gt-text-muted)]" : ""}>{show(r[c.key], c.key)}</span>}
                   </td>
                 ))}
               </tr>

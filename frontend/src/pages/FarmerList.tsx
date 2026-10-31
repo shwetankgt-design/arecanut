@@ -1,7 +1,9 @@
+import { serialNo } from "../lib/farmerSerial";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Search, X, CloudUpload, Download, ArrowUp, ArrowDown, ArrowUpDown, WifiOff, Lock, LockOpen } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
+import { featureOn } from "../lib/platform";
 import { api } from "../api";
 import { useLang } from "../LangContext";
 import { tr, trDistrict, trTaluka, trVillage } from "../i18n";
@@ -281,7 +283,7 @@ export default function FarmerList() {
           <input type="date" className="gt-input" value={searchParams.get("date_to") || ""} min={searchParams.get("date_from") || undefined}
             onChange={(e) => setParam("date_to", e.target.value)} />
         </label>
-        {user?.role === "admin" && (
+        {user?.role === "admin" && featureOn("admin") && (
           <details className="relative">
             <summary className="gt-input cursor-pointer select-none list-none text-sm min-w-[12rem]">
               {selectedUserIds.length ? `${selectedUserIds.length} user(s) selected` : "All users"}
@@ -390,7 +392,7 @@ export default function FarmerList() {
                       </span>
                     )}
                   </div>
-                  <div className="text-xs text-[var(--gt-text-muted)]">{r.farmer_id || "—"} &middot; {r.mobile_no || "—"}</div>
+                  <div className="text-xs text-[var(--gt-text-muted)]">{serialNo(r.farmer_id) || "—"} &middot; {r.mobile_no || "—"}</div>
                 </td>
                 <td className="p-3">{r.village ? <>{trVillage(r.village, lang)} / {trTaluka(r.taluka, lang)}</> : "—"}</td>
                 <td className="p-3">{r.district ? trDistrict(r.district, lang) : "—"}</td>

@@ -1,3 +1,4 @@
+import { serialNo } from "../lib/farmerSerial";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
@@ -10,6 +11,7 @@ import { useLang } from "../LangContext";
 import { trDistrict, trTaluka, trVillage } from "../i18n";
 import { useAuth } from "../AuthContext";
 import { Capacitor } from "@capacitor/core";
+import { featureOn } from "../lib/platform";
 
 const HOUSEHOLD_INCOME_BRACKET_LABELS: Record<string, string> = {
   "<10000": "Less than ₹10,000",
@@ -124,7 +126,7 @@ export default function SurveyView() {
               <span className="text-[11px] font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">DRAFT</span>
             )}
           </h1>
-          <p className="text-sm text-[var(--gt-text-muted)]">{s.farmer_id || "No Farmer ID yet"} &middot; {s.mobile_no || "—"}</p>
+          <p className="text-sm text-[var(--gt-text-muted)]">{serialNo(s.farmer_id) || "No Farmer ID yet"} &middot; {s.mobile_no || "—"}</p>
         </div>
         <div className="flex gap-2">
           <button className="gt-btn-secondary flex items-center gap-1.5" onClick={() => navigate("/farmers")}>
@@ -149,7 +151,7 @@ export default function SurveyView() {
           >
             <Pencil size={15} /> {s.status === "draft" ? "Continue Draft" : "Edit"}
           </button>
-          {user?.role === "admin" && (
+          {user?.role === "admin" && featureOn("admin") && (
             <button
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-[var(--gt-danger)]/40 text-[var(--gt-danger)] hover:bg-red-50 disabled:opacity-60"
               onClick={handleDelete}
@@ -161,7 +163,7 @@ export default function SurveyView() {
         </div>
       </div>
 
-      {user?.role === "admin" && (
+      {user?.role === "admin" && featureOn("admin") && (
         <div className="gt-card p-3 flex items-center gap-3 flex-wrap text-sm">
           <span className="font-semibold text-[var(--gt-purple-dark)]">Assigned to</span>
           <select
@@ -267,7 +269,7 @@ export default function SurveyView() {
           <Row label="Gender" value={s.gender} />
           <Row label="Age" value={s.age} />
           <Row label="Father / Husband Name" value={s.guardian_name} />
-          <Row label="Farmer Unique ID" value={s.farmer_id} />
+          <Row label="Farmer Unique ID" value={serialNo(s.farmer_id)} />
           <Row label="Survey Year / Season" value={s.survey_year} />
         </Section>
 

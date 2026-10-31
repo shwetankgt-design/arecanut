@@ -1,3 +1,4 @@
+import { serialNo } from "../lib/farmerSerial";
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AlertCircle, ArrowLeft } from "lucide-react";
@@ -38,7 +39,7 @@ export default function ClientFarmerDetail() {
       {backBtn}
       <div>
         <h1 className="text-xl font-bold text-[var(--gt-purple-dark)]">{name ? String(name) : "Farmer profile"}</h1>
-        <p className="text-sm text-[var(--gt-text-muted)]">{id} · read-only</p>
+        <p className="text-sm text-[var(--gt-text-muted)]">{serialNo(id)} · read-only</p>
       </div>
       {!id && <div className="text-sm text-red-700">No farmer selected.</div>}
       {id && !cur && <div className="text-center py-12 text-[var(--gt-text-muted)]">Loading…</div>}
@@ -51,7 +52,7 @@ export default function ClientFarmerDetail() {
               {Object.entries(fields).map(([k, v]) => (
                 <div key={k} className="min-w-0">
                   <dt className="text-[11px] text-[var(--gt-text-muted)]">{k.replace(/_/g, " ")}</dt>
-                  <dd className={`break-words ${v === null || v === "" ? "text-[var(--gt-text-muted)]" : ""}`}>{show(v, k)}</dd>
+                  <dd className={`break-words ${v === null || v === "" ? "text-[var(--gt-text-muted)]" : ""}`}>{k === "farmer_id" ? serialNo(String(v)) : show(v, k)}</dd>
                 </div>
               ))}
             </dl>

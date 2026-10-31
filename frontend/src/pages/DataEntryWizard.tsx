@@ -1214,7 +1214,7 @@ export default function DataEntryWizard() {
             <SubSection icon={UserSearch} title="Farmer Link" first>
               <Field label="Search Farmer (Aadhaar / Mobile / Farmer ID)">
                 <div className="flex gap-2">
-                  <input className="gt-input" placeholder={t("e.g. 9876543210 or NCCF/KA/0007", lang)} value={lookupQ} onChange={(e) => setLookupQ(e.target.value)} />
+                  <input className="gt-input" placeholder={t("e.g. 9876543210 or DSA/KA/0007", lang)} value={lookupQ} onChange={(e) => setLookupQ(e.target.value)} />
                   <button className="gt-btn-primary flex items-center gap-1.5 px-4" onClick={doLookup}><Search size={16} /> {t("Fetch", lang)}</button>
                 </div>
                 {lookupMsg && <div className="text-xs mt-2 text-[var(--gt-purple-dark)]">{lookupMsg}</div>}

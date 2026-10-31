@@ -5,6 +5,7 @@ import { useLang } from "./LangContext";
 import { tr } from "./i18n";
 import { useAuth } from "./AuthContext";
 import { api } from "./api";
+import { featureOn } from "./lib/platform";
 import { initSyncManager, runSync, subscribe, adoptLegacyQueue, clearAutoAdoptedNotice, type SyncManagerState } from "./lib/syncManager";
 
 function SyncStatus() {
@@ -137,16 +138,16 @@ export default function Layout() {
   const isAdmin = user?.role === "admin";
   const isMis = user?.role === "mis_user";
   const desktopNav = [
-    { to: "/", label: tr("navDashboard", lang), icon: LayoutDashboard, end: true, show: !isMis && !isClientUser },
-    { to: "/client", label: "Dashboard", icon: LayoutDashboard, end: true, show: isClientUser && clientMods.includes("client_dashboard") },
-    { to: "/client/farmers", label: "Farmer Records", icon: Eye, end: false, show: isClientUser && clientMods.includes("client_farmer_records") },
-    { to: "/mis", label: "Reports & Dashboards", icon: BarChart3, end: false, show: isMis },
+    { to: "/", label: tr("navDashboard", lang), icon: LayoutDashboard, end: true, show: !isMis && !isClientUser && featureOn("dashboard") },
+    { to: "/client", label: "Dashboard", icon: LayoutDashboard, end: true, show: featureOn("client") && isClientUser && clientMods.includes("client_dashboard") },
+    { to: "/client/farmers", label: "Farmer Records", icon: Eye, end: false, show: featureOn("client") && isClientUser && clientMods.includes("client_farmer_records") },
+    { to: "/mis", label: "Reports & Dashboards", icon: BarChart3, end: false, show: featureOn("mis") && isMis },
     { to: "/entry", label: tr("navNewEntry", lang), icon: PlusCircle, end: false, show: !isClientUser && (hasPermission("survey_entry") || hasPermission("fpo_consultation")) },
     { to: "/farmers", label: tr("navFarmerRecords", lang), icon: Users, end: false, show: hasPermission("farmer_records") },
     { to: "/plots", label: tr("navPlotsMap", lang), icon: Map, end: false, show: hasPermission("plots_map") },
-    { to: "/masters", label: tr("navMasterData", lang), icon: ClipboardList, end: false, show: isAdmin },
-    { to: "/users", label: tr("navUsers", lang), icon: ShieldCheck, end: false, show: isAdmin },
-    { to: "/mis-catalog", label: "Catalog", icon: ListChecks, end: false, show: isAdmin },
+    { to: "/masters", label: tr("navMasterData", lang), icon: ClipboardList, end: false, show: isAdmin && featureOn("admin") },
+    { to: "/users", label: tr("navUsers", lang), icon: ShieldCheck, end: false, show: isAdmin && featureOn("admin") },
+    { to: "/mis-catalog", label: "Catalog", icon: ListChecks, end: false, show: isAdmin && featureOn("admin") },
   ].filter((item) => item.show);
 
   // The bottom tab bar only has room for a handful of icons, so it keeps the
@@ -155,19 +156,19 @@ export default function Layout() {
   // rendered in the desktop top nav, so an admin or plots_map-only user had
   // no way to reach them on a phone at all) goes in the "More" menu instead.
   const mobilePrimary = [
-    { to: "/", label: tr("navDashboard", lang), icon: LayoutDashboard, end: true, show: !isMis && !isClientUser },
-    { to: "/client", label: "Dashboard", icon: LayoutDashboard, end: true, show: isClientUser && clientMods.includes("client_dashboard") },
-    { to: "/client/farmers", label: "Farmers", icon: Eye, end: false, show: isClientUser && clientMods.includes("client_farmer_records") },
-    { to: "/mis", label: "Reports", icon: BarChart3, end: false, show: isMis },
+    { to: "/", label: tr("navDashboard", lang), icon: LayoutDashboard, end: true, show: !isMis && !isClientUser && featureOn("dashboard") },
+    { to: "/client", label: "Dashboard", icon: LayoutDashboard, end: true, show: featureOn("client") && isClientUser && clientMods.includes("client_dashboard") },
+    { to: "/client/farmers", label: "Farmers", icon: Eye, end: false, show: featureOn("client") && isClientUser && clientMods.includes("client_farmer_records") },
+    { to: "/mis", label: "Reports", icon: BarChart3, end: false, show: featureOn("mis") && isMis },
     { to: "/entry", label: tr("navNewEntry", lang), icon: PlusCircle, end: false, show: hasPermission("survey_entry") || hasPermission("fpo_consultation") },
     { to: "/farmers", label: tr("navFarmers", lang), icon: Users, end: false, show: hasPermission("farmer_records") },
   ].filter((item) => item.show);
 
   const mobileMore = [
     { to: "/plots", label: tr("navPlotsMap", lang), icon: Map, show: hasPermission("plots_map") },
-    { to: "/masters", label: tr("navMasterData", lang), icon: ClipboardList, show: isAdmin },
-    { to: "/users", label: tr("navUsers", lang), icon: ShieldCheck, show: isAdmin },
-    { to: "/mis-catalog", label: "Catalog", icon: ListChecks, show: isAdmin },
+    { to: "/masters", label: tr("navMasterData", lang), icon: ClipboardList, show: isAdmin && featureOn("admin") },
+    { to: "/users", label: tr("navUsers", lang), icon: ShieldCheck, show: isAdmin && featureOn("admin") },
+    { to: "/mis-catalog", label: "Catalog", icon: ListChecks, show: isAdmin && featureOn("admin") },
   ].filter((item) => item.show);
 
   return (

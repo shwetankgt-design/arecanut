@@ -1,3 +1,4 @@
+import { serialNo } from "../lib/farmerSerial";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
@@ -442,7 +443,7 @@ function FarmerTable({ params, canRecords, canExport }: { params: Record<string,
           <tbody>
             {res.items.map((r) => (
               <tr key={String(r.farmer_id)} className="border-b border-[var(--gt-border)] last:border-none">
-                <td className="py-2 pr-3">{canRecords ? <Link className="text-[var(--gt-purple)] hover:underline" to={`/client/farmer?id=${encodeURIComponent(String(r.farmer_id))}`}>{r.farmer_id}</Link> : r.farmer_id}</td>
+                <td className="py-2 pr-3">{canRecords ? <Link className="text-[var(--gt-purple)] hover:underline" to={`/client/farmer?id=${encodeURIComponent(String(r.farmer_id))}`}>{serialNo(String(r.farmer_id))}</Link> : r.farmer_id}</td>
                 <td className="pr-3">{r.farmer_name}</td><td className="pr-3">{r.village || NOT_CAPTURED}</td><td className="pr-3">{r.society_name || "—"}</td><td className="pr-3">{r.credit_linkage || NOT_CAPTURED}</td>
                 <td className="pr-3 text-right tabular-nums">{r.areca_plant_count ?? NOT_CAPTURED}</td>
               </tr>

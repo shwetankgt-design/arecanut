@@ -1,6 +1,5 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Layout from "./Layout";
-import Dashboard from "./pages/Dashboard";
 import FarmerList from "./pages/FarmerList";
 import DataEntryWizard from "./pages/DataEntryWizard";
 import MasterData from "./pages/MasterData";
@@ -17,6 +16,7 @@ import SyncQueue from "./pages/SyncQueue";
 import MisHome from "./pages/MisHome";
 import MisViewer from "./pages/MisViewer";
 import MisCatalog from "./pages/MisCatalog";
+import Home from "./pages/Home";
 import ClientDashboard from "./pages/ClientDashboard";
 import ClientFarmers from "./pages/ClientFarmers";
 import ClientFarmerDetail from "./pages/ClientFarmerDetail";
@@ -37,15 +37,15 @@ export default function App() {
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route element={<ProtectedRoute />}>
               <Route element={<Layout />}>
-                <Route path="/" element={<Dashboard />} />
+                <Route path="/" element={<Home />} />
                 {/* No permission gate — this is the logged-in user's own
                     device queue, not a shared/admin resource. */}
                 <Route path="/sync-queue" element={<SyncQueue />} />
-                <Route element={<ProtectedRoute mis />}>
+                <Route element={<ProtectedRoute mis feature="mis" />}>
                   <Route path="/mis" element={<MisHome />} />
                   <Route path="/mis/view/:code" element={<MisViewer />} />
                 </Route>
-                <Route element={<ProtectedRoute clientArea />}>
+                <Route element={<ProtectedRoute clientArea feature="client" />}>
                   <Route path="/client" element={<ClientDashboard />} />
                   <Route path="/client/farmers" element={<ClientFarmers />} />
                   <Route path="/client/farmer" element={<ClientFarmerDetail />} />
@@ -69,7 +69,7 @@ export default function App() {
                   <Route path="/farmers/:id/plot-boundary" element={<PlotBoundaryCapture />} />
                   <Route path="/plots" element={<PlotsRegistry />} />
                 </Route>
-                <Route element={<ProtectedRoute require="admin" />}>
+                <Route element={<ProtectedRoute require="admin" feature="admin" />}>
                   <Route path="/masters" element={<MasterData />} />
                   <Route path="/users" element={<UserManagement />} />
                   <Route path="/mis-catalog" element={<MisCatalog />} />

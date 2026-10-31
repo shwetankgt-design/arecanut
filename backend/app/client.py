@@ -34,6 +34,7 @@ from .db import get_db
 
 router = APIRouter(prefix="/api/client", tags=["Client"])
 F = m.FarmerSurvey
+DISPLAY_PREFIX = "DSA/KA/"
 
 # --------------------------------------------------------------------------------------
 # Module registry
@@ -113,6 +114,20 @@ def _val(s: F, field: str):
     if field == "land_holding_acres":
         return None if s.land_own_acres is None else round(s.land_own_acres, 2)
     return getattr(s, field, None)
+
+
+def serial_no(farmer_id: Optional[str]) -> Optional[str]:
+    """'NCCF/KA/0067' -> 'DSA/KA/0067': client exports show the DSA display id."""
+    if farmer_id and "/" in farmer_id:
+        tail = farmer_id.rsplit("/", 1)[-1]
+        return DISPLAY_PREFIX + tail if tail.isdigit() else farmer_id
+    return farmer_id
+
+
+def id_search_term(text: str) -> str:
+    """Typed 'DSA/KA/0067' (or lower case) searches the stored serial part."""
+    t = text.strip()
+    return t[len(DISPLAY_PREFIX):] if t.upper().startswith(DISPLAY_PREFIX) else t
 
 
 def list_row(s: F, columns: list[str]) -> dict:
@@ -554,7 +569,7 @@ def _farmer_query(db: Session, user: m.User, f: Filters, *, q_text: Optional[str
         if kpi == "credit_linked" and category == "Yes":
             q = q.filter(F.credit_linkage == "Yes")
     if q_text:
-        t = "%" + _like_escape(q_text.strip()) + "%"
+        t = "%" + _like_escape(id_search_term(q_text)) + "%"
         q = q.filter(or_(F.farmer_name.ilike(t, escape="\\"), F.farmer_id.ilike(t, escape="\\")))   # name / farmer id only — never mobile
     if farmer_id:
         q = q.filter(F.farmer_id == farmer_id)
@@ -618,7 +633,7 @@ def export_farmers(request: Request, columns: Optional[str] = None, q: Optional[
     ws.title = "Farmers"
     ws.append([LIST_LABELS[c] for c in cols])
     for s in rows:
-        ws.append([_val(s, c) for c in cols])
+        ws.append([serial_no(s.farmer_id) if c == "farmer_id" else _val(s, c) for c in cols])
     log_access(db, request, user, "export", detail=f"farmers {len(rows)} rows {f.model_dump_json(exclude_none=True)}")
     return _xlsx(wb, "farmers.xlsx")
 
